@@ -1,0 +1,3040 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OctoFlow 3.9 Productivity – Smart Cache & Storage</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        github: {
+                            dark: '#07090e',
+                            darker: '#030407',
+                            border: '#1f2937',
+                            accent: '#10b981',
+                            accentHover: '#059669',
+                            blue: '#3b82f6',
+                            gray: '#9ca3af'
+                        }
+                    },
+                    boxShadow: {
+                        'glow': '0 0 25px -5px rgba(59, 130, 246, 0.25)',
+                        'glow-emerald': '0 0 25px -5px rgba(16, 185, 129, 0.25)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .glass-panel {
+            background: rgba(13, 17, 23, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-panel-hover:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+            box-shadow: 0 0 20px -5px rgba(59, 130, 246, 0.15);
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #030407; }
+        ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #374151; }
+        .folder-dropzone { transition: all 0.2s ease; }
+        .folder-dropzone:hover { background: rgba(59, 130, 246, 0.05); }
+        .pulse-ring { animation: pulse-ring 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse-ring { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .snapshot-badge { animation: snapshot-pulse 1.5s ease-in-out infinite; }
+        @keyframes snapshot-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(6, 182, 212, 0); }
+        }
+    </style>
+</head>
+<body class="h-full bg-github-dark text-gray-100 flex flex-col font-sans antialiased overflow-hidden selection:bg-github-blue selection:text-white">
+
+    <header class="glass-panel border-b border-github-border px-4 py-3 flex items-center justify-between shrink-0 select-none z-20 gap-3">
+        <div class="flex items-center space-x-3 cursor-pointer shrink-0 group" onclick="goToRoot()">
+            <div class="bg-gradient-to-tr from-emerald-600 to-emerald-400 p-2 rounded-xl text-white shadow-lg shadow-emerald-900/30 group-hover:scale-105 transition">
+                <i class="fa-brands fa-github text-xl"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-base md:text-lg tracking-wide text-white flex items-center gap-2">
+                    OctoFlow <span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-mono">v3.9 Productivity</span>
+                </h1>
+            </div>
+        </div>
+        <div id="breadcrumbs" class="flex-1 flex items-center space-x-1 text-xs md:text-sm bg-github-darker/60 border border-github-border px-3 py-1.5 rounded-xl overflow-x-auto text-gray-300 scrollbar-none whitespace-nowrap shadow-inner">
+            <span class="cursor-pointer hover:text-white transition flex items-center gap-1.5 font-medium" onclick="goToRoot()"><i class="fa-solid fa-house text-github-blue"></i> Root</span>
+        </div>
+        <div class="flex items-center space-x-2 shrink-0">
+            <div id="clipboardStatus" class="hidden text-xs bg-github-blue/10 border border-github-blue/30 text-blue-300 px-3 py-1.5 rounded-xl items-center gap-2 md:flex backdrop-blur-md">
+                <span id="clipboardText">Clipboard ready</span>
+                <button onclick="clearClipboard()" class="hover:text-white transition"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <button onclick="openTokenModal()" class="glass-panel hover:bg-gray-800 text-gray-200 text-xs px-3.5 py-2 rounded-xl font-medium transition flex items-center gap-1.5 shadow-sm">
+                <i class="fa-solid fa-key text-yellow-400"></i> <span class="hidden sm:inline">Tokens</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-hidden relative flex flex-col">
+        <div id="loadingOverlay" class="absolute inset-0 bg-github-darker/80 backdrop-blur-md z-50 flex flex-col items-center justify-center hidden">
+            <div class="w-14 h-14 border-4 border-github-border border-t-github-blue rounded-full animate-spin mb-4 shadow-glow"></div>
+            <p id="loadingText" class="text-sm font-medium text-github-gray animate-pulse">Communicating with GitHub API...</p>
+        </div>
+
+        <div id="rootView" class="flex-1 overflow-y-auto p-4 sm:p-8">
+            <div class="max-w-6xl mx-auto">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8 pb-4 border-b border-github-border gap-4">
+                    <div>
+                        <h2 class="text-2xl font-black text-white flex items-center gap-2.5"><i class="fa-solid fa-users text-github-blue"></i> Connected Accounts</h2>
+                        <p class="text-sm text-github-gray mt-1">Select your GitHub account below to explore repositories and manage code securely.</p>
+                    </div>
+                    <button onclick="openTokenModal()" class="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg shadow-emerald-900/20 transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-plus"></i> Add Token
+                    </button>
+                </div>
+                <div id="accountGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+            </div>
+        </div>
+
+        <div id="repoView" class="flex-1 overflow-y-auto p-4 sm:p-8 hidden">
+            <div class="max-w-6xl mx-auto">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-8 pb-4 border-b border-github-border gap-4">
+                    <div>
+                        <h2 id="repoViewTitle" class="text-2xl font-black text-white flex items-center gap-2">Repositories</h2>
+                        <p class="text-sm text-github-gray mt-1">Manage repositories, toggle privacy settings, rename, or wipe safely.</p>
+                    </div>
+                    <div class="flex items-center gap-2.5 flex-wrap">
+                        <input type="text" id="repoSearch" oninput="filterRepos()" placeholder="Filter repositories..." class="bg-github-darker/80 border border-github-border rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-github-blue text-white w-full sm:w-48 shadow-inner transition">
+                        <div id="repoPasteContainer" class="hidden">
+                            <button onclick="executeRepoPaste()" class="bg-github-blue hover:bg-blue-600 text-white text-xs px-3.5 py-2 rounded-xl font-medium shadow-glow transition flex items-center gap-1.5 pulse-ring">
+                                <i class="fa-solid fa-paste"></i> Paste Repo (<span id="repoPasteName">Copy</span>)
+                            </button>
+                        </div>
+                        <button onclick="promptCreateRepo()" class="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-3.5 py-2 rounded-xl text-sm font-medium transition flex items-center gap-1.5 shadow-md whitespace-nowrap">
+                            <i class="fa-solid fa-plus"></i> New Repo
+                        </button>
+                        <button onclick="formatAllRepositories()" class="bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/20 text-xs px-3.5 py-2 rounded-xl font-medium transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Format All
+                        </button>
+                        <button onclick="manualSync()" class="bg-github-blue/20 hover:bg-github-blue text-blue-300 hover:text-white border border-github-blue/30 text-xs px-3.5 py-2 rounded-xl font-medium transition flex items-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-sync"></i> Sync
+                        </button>
+                    </div>
+                </div>
+                <div id="repoGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+            </div>
+        </div>
+
+        <div id="fileView" class="flex-1 flex flex-col overflow-hidden hidden">
+            <div class="glass-panel border-b border-github-border px-4 py-3 flex items-center justify-between shrink-0 gap-2 flex-wrap">
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <span id="currentRepoBadge" class="text-xs bg-github-blue/10 text-blue-400 border border-github-blue/30 px-3 py-1.5 rounded-xl font-mono font-medium truncate shadow-inner">repo/name</span>
+                    <span id="hostingBadge" class="hidden text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-full font-mono items-center gap-1.5"></span>
+                </div>
+                <div class="flex items-center space-x-2 shrink-0 flex-wrap gap-y-2">
+                    <button onclick="downloadCurrentFolderAsZip()" class="glass-panel hover:bg-gray-800 text-gray-200 text-xs px-3.5 py-2 rounded-xl font-medium transition flex items-center gap-1.5 shadow-sm" title="Download folder or repo as ZIP">
+                        <i class="fa-solid fa-download text-emerald-400"></i> <span class="hidden sm:inline">Download ZIP</span>
+                    </button>
+                    <button onclick="manualRefresh()" class="glass-panel hover:bg-gray-800 text-gray-200 text-xs px-3.5 py-2 rounded-xl font-medium transition flex items-center gap-1.5 shadow-sm" title="Refresh current directory">
+                        <i class="fa-solid fa-rotate text-github-blue"></i> <span class="hidden sm:inline">Refresh</span>
+                    </button>
+                    <button onclick="formatCurrentDirectory()" class="bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/20 text-xs px-3.5 py-2 rounded-xl font-medium transition flex items-center gap-1.5" title="Wipe location contents">
+                        <i class="fa-solid fa-triangle-exclamation"></i> <span class="hidden sm:inline">Wipe Location</span>
+                    </button>
+                    <div id="pasteContainer" class="hidden">
+                        <button onclick="executePaste()" class="bg-github-blue hover:bg-blue-600 text-white text-xs px-3.5 py-2 rounded-xl font-medium shadow-glow transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-paste"></i> Paste (<span id="pasteActionName">Copy</span>)
+                        </button>
+                    </div>
+                    <div class="relative">
+                        <button onclick="toggleActionMenu()" class="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-lg shadow-emerald-900/20 transition flex items-center gap-2">
+                            <i class="fa-solid fa-plus text-base"></i> <span class="hidden sm:inline">Actions</span> <i class="fa-solid fa-chevron-down text-xs"></i>
+                        </button>
+                        <div id="actionMenuDropdown" class="absolute right-0 mt-2 w-60 glass-panel border border-github-border rounded-xl shadow-2xl py-1.5 hidden z-30">
+                            <button onclick="promptCreateFolder(); closeActionMenu();" class="w-full text-left px-4 py-2.5 text-sm hover:bg-github-border/40 text-gray-200 flex items-center gap-3 transition">
+                                <i class="fa-solid fa-folder-plus text-yellow-400 w-4"></i> Create Folder
+                            </button>
+                            <button onclick="promptCreateFile(); closeActionMenu();" class="w-full text-left px-4 py-2.5 text-sm hover:bg-github-border/40 text-gray-200 flex items-center gap-3 transition">
+                                <i class="fa-solid fa-file-circle-plus text-emerald-400 w-4"></i> Create File
+                            </button>
+                            <button onclick="triggerUploadModal('zip'); closeActionMenu();" class="w-full text-left px-4 py-2.5 text-sm hover:bg-github-border/40 text-gray-200 flex items-center gap-3 transition">
+                                <i class="fa-solid fa-file-zipper text-purple-400 w-4"></i> Upload & Extract ZIP
+                            </button>
+                            <button onclick="triggerUploadModal('general'); closeActionMenu();" class="w-full text-left px-4 py-2.5 text-sm hover:bg-github-border/40 text-gray-200 flex items-center gap-3 transition">
+                                <i class="fa-solid fa-cloud-arrow-up text-github-blue w-4"></i> Upload File(s)
+                            </button>
+                            <hr class="border-github-border/60 my-1">
+                            <button onclick="syncFolderWithRepo(); closeActionMenu();" class="w-full text-left px-4 py-2.5 text-sm hover:bg-github-border/40 text-gray-200 flex items-center gap-3 transition">
+                                <i class="fa-solid fa-folder-tree text-cyan-400 w-4"></i> Sync with Local Folder
+                            </button>
+                            <button id="hostingMenuBtn" onclick="handleHostingAction(); closeActionMenu();" class="w-full text-left px-4 py-2.5 text-sm hover:bg-github-border/40 text-gray-200 flex items-center gap-3 transition">
+                                <i class="fa-solid fa-globe text-blue-400 w-4"></i> <span id="hostingMenuText">Host with GitHub Pages</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="flex-1 overflow-y-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-github-darker/80 text-github-gray text-xs uppercase tracking-wider border-b border-github-border sticky top-0 z-10 backdrop-blur-md">
+                        <tr><th class="py-3 px-5 font-semibold">Name</th><th class="py-3 px-5 font-semibold hidden md:table-cell">Type</th><th class="py-3 px-5 font-semibold hidden sm:table-cell">Size</th><th class="py-3 px-5 font-semibold text-right">Actions</th></tr>
+                    </thead>
+                    <tbody id="fileTableBody" class="divide-y divide-github-border/50 text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="editorView" class="flex-1 flex flex-col overflow-hidden hidden bg-github-darker">
+            <div class="glass-panel border-b border-github-border px-4 py-3 flex items-center justify-between shrink-0">
+                <div class="flex items-center space-x-3">
+                    <span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg font-mono">Editor</span>
+                    <span id="editingFileNameDisplay" class="text-sm font-bold text-white font-mono truncate max-w-xs cursor-pointer hover:text-github-blue transition" onclick="enableFileNameEdit()" title="Click to rename file">filename.ext</span>
+                    <input id="editingFileNameInput" type="text" class="hidden bg-github-dark border border-github-blue rounded-lg px-2.5 py-1 text-sm font-mono text-white focus:outline-none shadow-inner" style="width: auto; min-width: 140px;" onblur="saveFileNameEdit()" onkeydown="if(event.key==='Enter') saveFileNameEdit()">
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="closeEditor()" class="glass-panel hover:bg-gray-800 text-gray-300 text-xs px-3.5 py-2 rounded-xl font-medium transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-xmark"></i> Cancel
+                    </button>
+                    <button onclick="saveFileCommit()" class="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white text-xs px-4 py-2 rounded-xl font-medium shadow-lg shadow-emerald-900/20 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-floppy-disk"></i> Commit
+                    </button>
+                </div>
+            </div>
+            <div class="flex-1 flex flex-col p-4 overflow-hidden">
+                <textarea id="codeEditorArea" class="w-full h-full bg-github-dark/90 border border-github-border rounded-xl p-5 font-mono text-sm text-gray-200 resize-none focus:outline-none focus:border-github-blue leading-relaxed selection:bg-github-blue selection:text-white shadow-inner" placeholder="Write or paste your file contents here..."></textarea>
+            </div>
+        </div>
+    </main>
+
+    <div id="inputModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel border border-github-border rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h3 id="inputModalTitle" class="text-lg font-bold text-white mb-2">Input Required</h3>
+            <p id="inputModalDesc" class="text-xs text-github-gray mb-4">Please provide details.</p>
+            <input type="text" id="modalInputField" class="w-full bg-github-dark border border-github-border rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-github-blue mb-6 font-mono shadow-inner">
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeInputModal()" class="glass-panel hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-xmark"></i> Cancel
+                </button>
+                <button id="modalConfirmBtn" class="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-check"></i> Confirm
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="createRepoModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel border border-github-border rounded-2xl w-full max-w-md p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-plus text-emerald-400"></i> Create Repository</h3>
+                <button onclick="closeCreateRepoModal()" class="text-github-gray hover:text-white transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div id="createRepoFolderArea" onclick="pickRepoFolder()" class="folder-dropzone cursor-pointer border-2 border-dashed border-github-border hover:border-github-blue rounded-xl p-5 mb-4 text-center select-none">
+                <i class="fa-solid fa-folder-open text-3xl text-github-blue mb-2"></i>
+                <p id="createRepoFolderTitle" class="text-sm text-gray-200 font-medium">Click here to select a folder to sync</p>
+                <p id="createRepoFolderSub" class="text-[10px] text-github-gray mt-1">The folder name will become the repository name. You can edit everything before upload.</p>
+            </div>
+
+            <div id="createRepoFolderChip" class="hidden mb-4 flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/30 rounded-xl px-3 py-2">
+                <i class="fa-solid fa-folder text-cyan-400"></i>
+                <span id="createRepoFolderChipName" class="text-xs text-cyan-200 font-mono flex-1 truncate"></span>
+                <span id="createRepoFolderChipCount" class="text-[10px] text-cyan-300/80 whitespace-nowrap"></span>
+                <button onclick="event.stopPropagation(); clearRepoFolderSelection();" class="text-cyan-300 hover:text-white transition"><i class="fa-solid fa-xmark text-xs"></i></button>
+            </div>
+
+            <label class="text-xs text-github-gray mb-1 block font-medium">Repository Name</label>
+            <input type="text" id="createRepoName" class="w-full bg-github-dark border border-github-border rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-github-blue mb-4 font-mono shadow-inner" placeholder="my-awesome-project">
+
+            <label class="text-xs text-github-gray mb-2 block font-medium">Visibility</label>
+            <div class="flex gap-2 mb-4">
+                <label class="flex-1 cursor-pointer">
+                    <input type="radio" name="createRepoVis" value="public" class="hidden peer" checked>
+                    <div class="peer-checked:bg-emerald-500/20 peer-checked:border-emerald-500/50 border border-github-border rounded-xl px-3 py-2.5 text-sm text-center transition text-gray-300 peer-checked:text-white">
+                        <i class="fa-solid fa-globe text-emerald-400 mr-1.5"></i> Public
+                    </div>
+                </label>
+                <label class="flex-1 cursor-pointer">
+                    <input type="radio" name="createRepoVis" value="private" class="hidden peer">
+                    <div class="peer-checked:bg-yellow-500/20 peer-checked:border-yellow-500/50 border border-github-border rounded-xl px-3 py-2.5 text-sm text-center transition text-gray-300 peer-checked:text-white">
+                        <i class="fa-solid fa-lock text-yellow-400 mr-1.5"></i> Private
+                    </div>
+                </label>
+            </div>
+
+            <label class="text-xs text-github-gray mb-1 block font-medium">Description (optional)</label>
+            <textarea id="createRepoDesc" rows="2" class="w-full bg-github-dark border border-github-border rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-github-blue mb-4 resize-none shadow-inner" placeholder="Short description..."></textarea>
+
+            <div class="flex justify-end space-x-3 mt-2">
+                <button onclick="closeCreateRepoModal()" class="glass-panel hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-medium transition">Cancel</button>
+                <button onclick="submitCreateRepo()" class="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-check"></i> Create
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="pasteRepoModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel border border-github-border rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-paste text-cyan-400"></i> Paste Repository</h3>
+                <button onclick="closePasteRepoModal()" class="text-github-gray hover:text-white transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-xs text-github-gray mb-3">
+                Copying <span id="pasteRepoSrc" class="text-white font-mono"></span> into <span id="pasteRepoDest" class="text-emerald-400 font-mono"></span>.
+            </p>
+
+            <div class="bg-github-darker/60 border border-github-border rounded-xl p-3 mb-4 space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-github-gray">Source visibility</span>
+                    <span id="pasteRepoVisibility" class="font-medium"></span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-github-gray">Staged files</span>
+                    <span id="pasteRepoFileCount" class="font-mono text-cyan-400">0</span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-github-gray">Snapshot status</span>
+                    <span id="pasteRepoSnapshotStatus" class="font-medium text-emerald-400"><i class="fa-solid fa-check-circle mr-1"></i>Ready</span>
+                </div>
+            </div>
+
+            <div id="pasteRepoConflict" class="hidden mb-4">
+                <div class="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3">
+                    <p class="text-yellow-300 text-xs font-medium flex items-start gap-2">
+                        <i class="fa-solid fa-triangle-exclamation mt-0.5"></i>
+                        <span>A repository named <span id="pasteRepoConflictName" class="font-mono"></span> already exists in the target account.</span>
+                    </p>
+                </div>
+            </div>
+
+            <div id="pasteRepoNameWrap">
+                <label class="text-xs text-github-gray mb-1 block font-medium">New Repository Name</label>
+                <input type="text" id="pasteRepoName" class="w-full bg-github-dark border border-github-border rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-github-blue mb-4 font-mono shadow-inner" placeholder="my-copied-repo">
+            </div>
+
+            <div id="pasteRepoButtons" class="flex flex-col gap-2">
+                <button id="pasteRepoCreateBtn" onclick="confirmRepoPaste('create')" class="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-4 py-3 rounded-xl text-sm font-medium shadow-lg transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-plus"></i> Paste as New Repo
+                </button>
+                <button id="pasteRepoOverwriteBtn" onclick="confirmRepoPaste('overwrite')" class="hidden w-full bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-rotate"></i> Overwrite Existing Repo
+                </button>
+                <button onclick="closePasteRepoModal()" class="w-full glass-panel hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-medium transition">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="tokenModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel border border-github-border rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-key text-yellow-400"></i> Manage GitHub Tokens</h3>
+                <button onclick="closeTokenModal()" class="text-github-gray hover:text-white transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p class="text-xs text-github-gray mb-4">Tokens are processed securely in memory and stored encrypted in IndexedDB. Check "Session only" to wipe tokens on exit.</p>
+            <div id="tokenListContainer" class="space-y-3 mb-4 max-h-60 overflow-y-auto pr-1"></div>
+            <button onclick="addTokenRow()" class="w-full border border-dashed border-github-border hover:border-github-blue text-github-gray hover:text-white py-2.5 rounded-xl text-xs font-medium transition mb-6 flex items-center justify-center gap-1.5 bg-github-darker/50">
+                <i class="fa-solid fa-plus"></i> Add Token Field
+            </button>
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeTokenModal()" class="glass-panel hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-xmark"></i> Cancel
+                </button>
+                <button onclick="saveAndReloadTokens()" class="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-check"></i> Save & Authenticate
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="progressModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel border border-github-border rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+            <h3 id="progressTitle" class="text-lg font-bold text-white mb-2">Loading Repository</h3>
+            <p id="progressFile" class="text-sm font-mono text-white truncate">Fetching files...</p>
+            <p id="progressLocation" class="text-xs text-github-gray mb-3 truncate"></p>
+            <div class="w-full bg-github-dark rounded-full h-2.5 mb-4 overflow-hidden border border-github-border">
+                <div id="progressBar" class="bg-gradient-to-r from-emerald-500 to-emerald-400 h-2.5 rounded-full transition-all duration-300 shadow-glow-emerald" style="width: 0%"></div>
+            </div>
+            <div id="progressConflict" class="hidden">
+                <p class="text-yellow-400 text-sm font-medium mb-3">⚠️ File already exists. Choose resolution action:</p>
+                <div class="flex gap-3">
+                    <button id="overwriteBtn" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition flex-1 shadow-md">Overwrite</button>
+                    <button id="skipBtn" class="glass-panel hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-medium transition flex-1">Skip</button>
+                </div>
+            </div>
+            <div id="progressStatus" class="text-xs text-github-gray mt-4 text-center">Processing...</div>
+        </div>
+    </div>
+
+    <div id="hostingModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel border border-github-border rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+            <h3 id="hostingModalTitle" class="text-lg font-bold text-white mb-3 flex items-center gap-2"><i class="fa-solid fa-globe text-blue-400"></i> GitHub Pages</h3>
+            <div id="hostingModalContent" class="text-sm text-github-gray mb-5 space-y-2"></div>
+            <div id="hostingModalButtons" class="flex flex-col gap-2"></div>
+        </div>
+    </div>
+
+    <input type="file" id="hiddenFileInput" class="hidden" multiple onchange="handleFileSelected(event)">
+    <input type="file" id="hiddenSyncFolderInput" class="hidden" webkitdirectory directory multiple>
+    <input type="file" id="hiddenCreateRepoFolderInput" class="hidden" webkitdirectory directory multiple>
+
+    <script>
+        // =========================================================================
+        //  OCTOFLOW 3.9 PRODUCTIVITY — SETTLED SNAPSHOT + FULL CACHE SYNC
+        //
+        //  COPY WORKFLOW:
+        //   1. COPY clicked → snapshotSourceRepo() runs with a TREE SETTLE LOOP
+        //      (cache-bust via ?t= only, poll git/trees until stable)
+        //   2. Files downloaded → staged in IndexedDB
+        //   3. PASTE clicked → new repo created (same name/visibility/desc)
+        //   4. Files uploaded → from staged snapshot
+        //   5. Immediately → staged snapshot DELETED from IndexedDB
+        //
+        //  SNAPSHOT PERSISTENCE (patched):
+        //   On boot, if a valid repo snapshot exists (staged by OctoFlow itself
+        //   OR by a sibling app such as Mini IDE in the same origin), it is
+        //   REHYDRATED rather than wiped. This lets an externally-staged
+        //   snapshot survive a fresh page load so it can be pasted.
+        //   Cleanup remains unchanged: paste success, the ✕ button, or
+        //   browser data clear still discard it.
+        //
+        //  NOTE: We intentionally avoid `Cache-Control` / `Pragma` headers on
+        //  GitHub API requests — they trigger CORS preflight failures on some
+        //  mobile browsers. `?t=Date.now()` alone defeats GitHub's CDN cache.
+        // =========================================================================
+
+        const DB_NAME = 'OctoFlowDB';
+        const STORE_NAME = 'appState';
+        const STAGING_STORE = 'staging';
+        const BUFFER_FILENAME = 'buffer.txt';
+        const BUFFER_MAX_ATTEMPTS = 15;
+        const BUFFER_RETRY_DELAY_MS = 2000;
+        const REPO_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+        let db = null;
+
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                if (db) { resolve(db); return; }
+                const request = indexedDB.open(DB_NAME, 4);
+                request.onupgradeneeded = (e) => {
+                    const database = e.target.result;
+                    if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    if (!database.objectStoreNames.contains(STAGING_STORE)) database.createObjectStore(STAGING_STORE, { keyPath: 'id' });
+                };
+                request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+                request.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async function saveState(state) {
+            try {
+                const database = await openDB();
+                const tx = database.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).put({ id: 'state', ...state });
+                await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = reject; });
+            } catch (e) {}
+        }
+
+        async function loadState() {
+            try {
+                const database = await openDB();
+                const tx = database.transaction(STORE_NAME, 'readonly');
+                return await new Promise((resolve, reject) => {
+                    const req = tx.objectStore(STORE_NAME).get('state');
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = reject;
+                }) || null;
+            } catch (e) { return null; }
+        }
+
+        async function stageSnapshot(key, snapshot) {
+            const database = await openDB();
+            const tx = database.transaction(STAGING_STORE, 'readwrite');
+            tx.objectStore(STAGING_STORE).put({ id: key, meta: snapshot.meta, files: snapshot.files, createdAt: Date.now() });
+            await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = reject; });
+        }
+
+        async function readStaged(key) {
+            try {
+                const database = await openDB();
+                const tx = database.transaction(STAGING_STORE, 'readonly');
+                return await new Promise((resolve, reject) => {
+                    const req = tx.objectStore(STAGING_STORE).get(key);
+                    req.onsuccess = () => resolve(req.result || null);
+                    req.onerror = reject;
+                });
+            } catch (e) { return null; }
+        }
+
+        async function clearStaged(key) {
+            try {
+                const database = await openDB();
+                const tx = database.transaction(STAGING_STORE, 'readwrite');
+                tx.objectStore(STAGING_STORE).delete(key);
+                await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = reject; });
+            } catch (e) {}
+        }
+
+        async function clearAllStaging() {
+            try {
+                const database = await openDB();
+                const tx = database.transaction(STAGING_STORE, 'readwrite');
+                tx.objectStore(STAGING_STORE).clear();
+                await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = reject; });
+            } catch (e) {}
+        }
+
+        let tokens = [];
+        let accountsData = [];
+        let currentAccount = null;
+        let currentRepo = null;
+        let currentPath = "";
+        let currentFileSha = null;
+        let clipboard = null;
+        let pendingRepoSnapshot = null;
+        const repoCache = {};
+        let cachedRepos = [];
+        const hostingChecked = new Set();
+        let pendingCreateRepoFiles = null;
+        let pendingCreateRepoRootName = null;
+
+        const PAGES_WORKFLOW_YAML = `name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: \${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+`;
+
+        function getCacheKey(owner, repo) { return `${owner}/${repo}`; }
+        function getCachedRepoData(owner, repo) { return repoCache[getCacheKey(owner, repo)] || null; }
+        function setCachedRepoData(owner, repo, data) { repoCache[getCacheKey(owner, repo)] = data; }
+        function clearRepoCache(owner, repo) { delete repoCache[getCacheKey(owner, repo)]; }
+        function purgeAccountRepoCache(owner) {
+            const prefix = `${owner}/`;
+            for (const key of Object.keys(repoCache)) {
+                if (key.startsWith(prefix)) delete repoCache[key];
+            }
+        }
+
+        // ==========================================================
+        //  BUFFER MECHANISM
+        // ==========================================================
+
+        async function uploadBuffer(owner, repo, token, timestamp, maxAttempts = BUFFER_MAX_ATTEMPTS) {
+            const content = btoa(timestamp);
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                document.getElementById('progressStatus').innerText =
+                    `Buffer check attempt ${attempt}/${maxAttempts} — preparing repo...`;
+
+                let existingSha = null;
+                try {
+                    const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${BUFFER_FILENAME}?t=${Date.now()}`, {
+                        headers: { Authorization: `token ${token}` }
+                    });
+                    if (checkRes.ok) {
+                        const existing = await checkRes.json();
+                        existingSha = existing.sha;
+                    }
+                } catch (e) {}
+
+                const body = { message: `Buffer check ${timestamp}`, content };
+                if (existingSha) body.sha = existingSha;
+
+                let res;
+                try {
+                    res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${BUFFER_FILENAME}`, {
+                        method: 'PUT',
+                        headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                } catch (netErr) {
+                    await new Promise(r => setTimeout(r, BUFFER_RETRY_DELAY_MS));
+                    continue;
+                }
+
+                if (res.ok) {
+                    const data = await res.json();
+                    return { ok: true, sha: data.content && data.content.sha ? data.content.sha : null };
+                }
+
+                if (res.status === 404 || res.status === 409 || res.status === 422) {
+                    await new Promise(r => setTimeout(r, BUFFER_RETRY_DELAY_MS));
+                    continue;
+                }
+
+                const err = await res.json().catch(() => ({}));
+                return { ok: false, status: res.status, message: err.message || `HTTP ${res.status}` };
+            }
+            return { ok: false, status: 404, message: `Buffer did not land after ${maxAttempts} attempts` };
+        }
+
+        async function verifyBuffer(owner, repo, token, expectedTimestamp) {
+            try {
+                const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${BUFFER_FILENAME}?t=${Date.now()}`, {
+                    headers: { Authorization: `token ${token}` }
+                });
+                if (!res.ok) return { ok: false, reason: `read returned ${res.status}` };
+                const data = await res.json();
+                if (!data.content) return { ok: false, reason: 'no content' };
+                const decoded = atob(data.content.replace(/\s/g, ''));
+                if (decoded === expectedTimestamp) {
+                    return { ok: true, sha: data.sha };
+                }
+                return { ok: false, reason: `content mismatch (got "${decoded}")` };
+            } catch (e) {
+                return { ok: false, reason: e.message };
+            }
+        }
+
+        async function deleteBuffer(owner, repo, token, sha) {
+            try {
+                let bufferSha = sha;
+                if (!bufferSha) {
+                    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${BUFFER_FILENAME}?t=${Date.now()}`, {
+                        headers: { Authorization: `token ${token}` }
+                    });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    bufferSha = data.sha;
+                }
+                await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${BUFFER_FILENAME}`, {
+                    method: 'DELETE',
+                    headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: `Remove buffer`, sha: bufferSha })
+                });
+            } catch (e) {}
+        }
+
+        async function ensureRepoReadyViaBuffer(owner, repo, token) {
+            const timestamp = new Date().toISOString();
+            showProgressModal(`Preparing @${owner}/${repo}...`);
+
+            const uploadResult = await uploadBuffer(owner, repo, token, timestamp);
+            if (!uploadResult.ok) {
+                closeProgressModal();
+                return { ok: false, status: uploadResult.status, message: uploadResult.message, timestamp };
+            }
+
+            document.getElementById('progressStatus').innerText = `Verifying buffer content...`;
+            const verifyResult = await verifyBuffer(owner, repo, token, timestamp);
+            if (verifyResult.ok) {
+                return { ok: true, sha: verifyResult.sha, timestamp };
+            }
+
+            document.getElementById('progressStatus').innerText = `Stale buffer detected — clearing and retrying...`;
+            await deleteBuffer(owner, repo, token, null);
+            await new Promise(r => setTimeout(r, 1500));
+
+            const retryUpload = await uploadBuffer(owner, repo, token, timestamp);
+            if (!retryUpload.ok) {
+                closeProgressModal();
+                return { ok: false, status: retryUpload.status, message: retryUpload.message, timestamp };
+            }
+            const retryVerify = await verifyBuffer(owner, repo, token, timestamp);
+            if (retryVerify.ok) {
+                return { ok: true, sha: retryVerify.sha, timestamp };
+            }
+
+            closeProgressModal();
+            return { ok: false, status: 0, message: `Buffer verification failed: ${retryVerify.reason}`, timestamp };
+        }
+
+        // =====================================================
+
+        async function fetchRepoFullData(owner, repo, token, onProgress) {
+            const timestamp = Date.now();
+            const repoInfoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}?t=${timestamp}`, { headers: { Authorization: `token ${token}` } });
+            if (!repoInfoRes.ok) throw new Error('Failed to fetch repo info');
+            const repoInfo = await repoInfoRes.json();
+            const branch = repoInfo.default_branch;
+            const treeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1&t=${timestamp}`, { headers: { Authorization: `token ${token}` } });
+            if (!treeRes.ok) throw new Error('Failed to fetch tree');
+            const treeData = await treeRes.json();
+            const treeItems = treeData.tree || [];
+            const fileItems = treeItems.filter(item => item.type === 'blob' && item.path.split('/').pop() !== '.gitkeep');
+            const totalFiles = fileItems.length;
+            let processed = 0;
+            const contentMap = {};
+            const concurrency = 3;
+            const chunks = [];
+            for (let i = 0; i < fileItems.length; i += concurrency) chunks.push(fileItems.slice(i, i + concurrency));
+            for (const chunk of chunks) {
+                await Promise.all(chunk.map(async (item) => {
+                    try {
+                        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${item.path}?t=${timestamp}`, { headers: { Authorization: `token ${token}` } });
+                        if (res.ok) { const data = await res.json(); contentMap[item.path] = data.content; }
+                        else { contentMap[item.path] = null; }
+                    } catch (e) { contentMap[item.path] = null; }
+                    processed++;
+                    if (onProgress) onProgress(processed, totalFiles);
+                }));
+            }
+            return { branch, tree: treeItems, contents: contentMap, fetchedAt: Date.now(), repoInfo };
+        }
+
+        function getFileContentFromCache(owner, repo, path) {
+            const data = getCachedRepoData(owner, repo);
+            if (data && data.contents && data.contents[path] !== undefined) return data.contents[path];
+            return null;
+        }
+
+        function filterTreeByPath(treeItems, prefix) {
+            if (!prefix) prefix = "";
+            const prefixWithSlash = prefix ? prefix + '/' : '';
+            const result = [];
+            for (const item of treeItems) {
+                const path = item.path;
+                if (path.startsWith(prefixWithSlash) && path !== prefix) {
+                    const relative = path.substring(prefixWithSlash.length);
+                    if (!relative.includes('/')) result.push(item);
+                }
+            }
+            return result;
+        }
+
+        async function refreshCurrentRepo(showLoadingIndicator = true) {
+            if (!currentAccount || !currentRepo) return;
+            clearRepoCache(currentAccount.username, currentRepo);
+            if (showLoadingIndicator) showLoading(true, 'Refreshing repository...');
+            try {
+                await loadRepoIntoCache(currentAccount.username, currentRepo, currentAccount.token);
+                if (showLoadingIndicator) showLoading(false);
+                await renderCurrentDirectory();
+                await updateHostingBadge();
+            } catch (e) {
+                showLoading(false);
+                showCustomModal('Refresh Error', 'Failed to refresh repository: ' + e.message, null);
+            }
+        }
+
+        async function loadRepoIntoCache(owner, repo, token) {
+            const key = getCacheKey(owner, repo);
+            if (repoCache[key]) return;
+            showProgressModal(`Loading ${repo}...`);
+            const updateProgress = (processed, total) => {
+                const percent = total ? (processed / total) * 100 : 0;
+                document.getElementById('progressBar').style.width = Math.min(percent, 100) + '%';
+                document.getElementById('progressStatus').innerText = `Fetching ${processed}/${total} files...`;
+            };
+            try {
+                const data = await fetchRepoFullData(owner, repo, token, updateProgress);
+                setCachedRepoData(owner, repo, data);
+                closeProgressModal();
+            } catch (e) {
+                closeProgressModal();
+                showCustomModal('Error', 'Failed to load repository cache: ' + e.message, null);
+                throw e;
+            }
+        }
+
+        async function renderCurrentDirectory() {
+            if (!currentAccount || !currentRepo) return;
+            const data = getCachedRepoData(currentAccount.username, currentRepo);
+            if (!data) {
+                await loadRepoIntoCache(currentAccount.username, currentRepo, currentAccount.token);
+                const newData = getCachedRepoData(currentAccount.username, currentRepo);
+                if (!newData) { renderFileTableFromCache({tree:[],contents:{}}, currentPath); return; }
+                renderFileTableFromCache(newData, currentPath);
+            } else {
+                renderFileTableFromCache(data, currentPath);
+            }
+            document.getElementById('currentRepoBadge').innerText = `${currentRepo}${currentPath ? '/' + currentPath : ''}`;
+            updateBreadcrumbs();
+            await updateHostingBadge();
+        }
+
+        function renderFileTableFromCache(cacheData, path) {
+            const items = filterTreeByPath(cacheData.tree, path);
+            const tbody = document.getElementById('fileTableBody');
+            tbody.innerHTML = '';
+            if (path !== "") {
+                const parentPath = path.split('/').slice(0, -1).join('/');
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-github-border/30 transition cursor-pointer";
+                tr.onclick = () => { currentPath = parentPath; renderCurrentDirectory(); };
+                tr.innerHTML = `<td class="py-3 px-5 font-medium text-white flex items-center gap-2.5"><i class="fa-solid fa-arrow-turn-up text-github-blue"></i> ..</td><td class="py-3 px-5 text-github-gray hidden md:table-cell">Parent Directory</td><td class="py-3 px-5 text-github-gray hidden sm:table-cell">-</td><td class="py-3 px-5 text-right"></td>`;
+                tbody.appendChild(tr);
+            }
+            if (items.length === 0) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td colspan="4" class="py-12 text-center text-github-gray">This folder is empty.</td>`;
+                tbody.appendChild(tr);
+                return;
+            }
+            items.sort((a, b) => {
+                if (a.type === b.type) return a.path.localeCompare(b.path);
+                return a.type === 'tree' ? -1 : 1;
+            });
+            for (const item of items) {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-github-border/20 transition border-b border-github-border/30 group";
+                const icon = item.type === 'tree' ? '<i class="fa-solid fa-folder text-yellow-400"></i>' : getFileIcon(item.path);
+                const isDir = item.type === 'tree';
+                const sha = item.sha;
+                const displayName = item.path.split('/').pop();
+                tr.innerHTML = `
+                    <td class="py-3.5 px-5 font-medium text-white flex items-center gap-3 cursor-pointer" onclick="${isDir ? `currentPath='${item.path}'; renderCurrentDirectory();` : `openFileEditor('${item.path}', '${sha}')`}">
+                        ${icon} <span class="hover:text-github-blue transition truncate max-w-xs">${displayName}</span>
+                    </td>
+                    <td class="py-3.5 px-5 text-github-gray hidden md:table-cell capitalize">${isDir ? 'folder' : 'file'}</td>
+                    <td class="py-3.5 px-5 text-github-gray hidden sm:table-cell font-mono text-xs">${isDir ? '-' : formatBytes(item.size)}</td>
+                    <td class="py-3.5 px-5 text-right">
+                        <div class="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition">
+                            ${item.path.endsWith('.zip') ? `<button onclick="event.stopPropagation(); extractZipFile('${item.path}', null)" class="text-purple-400 hover:text-white p-1.5 transition" title="Extract ZIP"><i class="fa-solid fa-file-zipper"></i></button>` : ''}
+                            <button onclick="event.stopPropagation(); setClipboardItem('copy', '${item.path}', '${isDir ? 'dir' : 'file'}', '${currentAccount.username}', '${currentRepo}', '${sha}')" class="text-github-gray hover:text-white p-1.5 transition" title="Copy"><i class="fa-solid fa-copy"></i></button>
+                            <button onclick="event.stopPropagation(); setClipboardItem('move', '${item.path}', '${isDir ? 'dir' : 'file'}', '${currentAccount.username}', '${currentRepo}', '${sha}')" class="text-github-gray hover:text-white p-1.5 transition" title="Move"><i class="fa-solid fa-scissors"></i></button>
+                            <button onclick="event.stopPropagation(); deleteItem('${item.path}', '${sha}', '${isDir ? 'dir' : 'file'}')" class="text-red-400 hover:text-red-300 p-1.5 transition" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
+        }
+
+        function goToRoot() {
+            if (currentAccount && currentRepo) clearRepoCache(currentAccount.username, currentRepo);
+            currentAccount = null;
+            currentRepo = null;
+            currentPath = "";
+            document.getElementById('rootView').classList.remove('hidden');
+            document.getElementById('repoView').classList.add('hidden');
+            document.getElementById('fileView').classList.add('hidden');
+            document.getElementById('editorView').classList.add('hidden');
+            updateBreadcrumbs();
+            updateStoredLocation();
+            renderRootView();
+        }
+
+        async function selectAccount(username) {
+            if (currentAccount && currentRepo) clearRepoCache(currentAccount.username, currentRepo);
+            currentAccount = accountsData.find(a => a.username === username);
+            if (!currentAccount) return;
+            currentRepo = null;
+            currentPath = "";
+            document.getElementById('rootView').classList.add('hidden');
+            document.getElementById('repoView').classList.remove('hidden');
+            document.getElementById('fileView').classList.add('hidden');
+            document.getElementById('editorView').classList.add('hidden');
+            document.getElementById('repoViewTitle').innerText = `${currentAccount.username}'s Repositories`;
+            updateBreadcrumbs();
+            await fetchAndRenderRepos();
+            await updateStoredLocation();
+            updateClipboardUI();
+        }
+
+        async function selectRepo(repoName, path = "") {
+            if (currentAccount && currentRepo && currentRepo !== repoName) {
+                clearRepoCache(currentAccount.username, currentRepo);
+            }
+
+            const key = getCacheKey(currentAccount.username, repoName);
+            const cached = repoCache[key];
+            if (cached && cached.fetchedAt) {
+                const ageMs = Date.now() - cached.fetchedAt;
+                if (ageMs > REPO_CACHE_MAX_AGE_MS) {
+                    clearRepoCache(currentAccount.username, repoName);
+                }
+            }
+
+            currentRepo = repoName;
+            currentPath = path;
+            document.getElementById('rootView').classList.add('hidden');
+            document.getElementById('repoView').classList.add('hidden');
+            document.getElementById('fileView').classList.remove('hidden');
+            document.getElementById('editorView').classList.add('hidden');
+            showLoading(true, 'Loading repository...');
+            try {
+                await loadRepoIntoCache(currentAccount.username, currentRepo, currentAccount.token);
+                await renderCurrentDirectory();
+                await updateHostingBadge();
+                const hKey = getCacheKey(currentAccount.username, currentRepo);
+                if (!hostingChecked.has(hKey)) {
+                    hostingChecked.add(hKey);
+                    await checkHostingStatusOnEnter();
+                }
+            } catch (e) {}
+            showLoading(false);
+            await updateStoredLocation();
+            updateClipboardUI();
+        }
+
+        function renderRootView() {
+            const grid = document.getElementById('accountGrid');
+            grid.innerHTML = '';
+            if (accountsData.length === 0) {
+                grid.innerHTML = `<div class="col-span-full glass-panel border border-github-border rounded-2xl p-10 text-center"><i class="fa-solid fa-key text-4xl text-yellow-500 mb-3 animate-pulse"></i><h3 class="text-lg font-bold text-white mb-1">No Authenticated Accounts</h3><p class="text-xs text-github-gray mb-6">Please add a valid GitHub Personal Access Token with repository scope.</p><button onclick="openTokenModal()" class="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-lg">Add Token</button></div>`;
+                return;
+            }
+            accountsData.forEach(acc => {
+                const card = document.createElement('div');
+                card.className = "glass-panel glass-panel-hover rounded-2xl p-6 transition cursor-pointer flex flex-col justify-between shadow-xl group";
+                card.onclick = () => selectAccount(acc.username);
+                card.innerHTML = `
+                    <div>
+                        <div class="flex items-center space-x-4 mb-5">
+                            <img src="${acc.avatar}" alt="${acc.username}" class="w-14 h-14 rounded-2xl border border-github-border group-hover:border-github-blue transition shadow-md">
+                            <div>
+                                <h3 class="text-base font-bold text-white group-hover:text-github-blue transition">${acc.name}</h3>
+                                <p class="text-xs font-mono text-github-gray">@${acc.username}</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mb-5 text-center">
+                            <div class="bg-github-dark/60 border border-github-border/60 rounded-xl p-3 shadow-inner">
+                                <span class="block text-lg font-bold text-white">${acc.publicRepos}</span>
+                                <span class="text-[10px] text-github-gray uppercase tracking-wider">Public Repos</span>
+                            </div>
+                            <div class="bg-github-dark/60 border border-github-border/60 rounded-xl p-3 shadow-inner">
+                                <span class="block text-lg font-bold text-white">${acc.privateRepos}</span>
+                                <span class="text-[10px] text-github-gray uppercase tracking-wider">Private Repos</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-xs text-github-blue font-medium flex items-center justify-between pt-3 border-t border-github-border/50">
+                        <span>Explore Repositories</span>
+                        <i class="fa-solid fa-arrow-right group-hover:translate-x-1.5 transition"></i>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        async function fetchAndRenderRepos() {
+            showLoading(true, "Fetching repositories...");
+            try {
+                const res = await fetch(`https://api.github.com/user/repos?per_page=100&sort=updated&t=${Date.now()}`, {
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Accept': 'application/vnd.github.v3+json' }
+                });
+                if (res.ok) {
+                    cachedRepos = await res.json();
+                    purgeAccountRepoCache(currentAccount.username);
+                    renderRepoList(cachedRepos);
+                    updateAccountCounts(cachedRepos);
+                }
+            } catch (e) {}
+            showLoading(false);
+        }
+
+        function updateAccountCounts(repos) {
+            const publicCount = repos.filter(r => !r.private).length;
+            const privateCount = repos.filter(r => r.private).length;
+            const acc = accountsData.find(a => a.username === currentAccount.username);
+            if (acc) { acc.publicRepos = publicCount; acc.privateRepos = privateCount; }
+        }
+
+        function manualSync() { fetchAndRenderRepos(); }
+
+        function createRepoCard(repo) {
+            const card = document.createElement('div');
+            card.className = "repo-card glass-panel glass-panel-hover rounded-2xl p-5 transition flex flex-col justify-between shadow-lg";
+            const isHosted = repo.has_pages || false;
+            const pagesUrl = repo.homepage || '';
+            const otherAccounts = accountsData.filter(a => a.username !== currentAccount.username);
+            const canCopy = otherAccounts.length > 0;
+            const isOnClipboard = clipboard && clipboard.type === 'repo' && clipboard.sourceOwner === currentAccount.username && clipboard.sourceRepo === repo.name;
+            const stagedInfo = (isOnClipboard && pendingRepoSnapshot)
+                ? `<span class="text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded-full whitespace-nowrap snapshot-badge"><i class="fa-solid fa-database text-[8px] mr-1"></i>${pendingRepoSnapshot.fileCount} staged</span>`
+                : '';
+            card.innerHTML = `
+                <div>
+                    <div class="flex items-start justify-between mb-2 gap-1">
+                        <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                            <span class="repo-name text-base font-bold text-white hover:text-github-blue transition cursor-pointer truncate" onclick="selectRepo('${repo.name}')" title="${repo.name}">${repo.name}</span>
+                            ${isHosted ? `<span class="text-[9px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded-full whitespace-nowrap"><i class="fa-solid fa-globe text-[8px] mr-1"></i>Hosted</span>` : ''}
+                            ${stagedInfo}
+                        </div>
+                        <span class="repo-badge text-[10px] font-mono px-2.5 py-0.5 rounded-full border ${repo.private ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'} shrink-0 ml-1">${repo.private ? 'Private' : 'Public'}</span>
+                    </div>
+                    <p class="text-xs text-github-gray line-clamp-2 mb-2">${repo.description || 'No description provided.'}</p>
+                    ${isHosted && pagesUrl ? `<div class="text-[10px] text-blue-300/80 font-mono truncate mb-3"><i class="fa-solid fa-link mr-1"></i>${pagesUrl}</div>` : ''}
+                </div>
+                <div class="flex items-center justify-between pt-3 border-t border-github-border/60 text-xs">
+                    <button class="browse-btn bg-github-blue/10 hover:bg-github-blue hover:text-white text-blue-300 px-3.5 py-1.5 rounded-xl font-medium transition flex items-center gap-1.5 shadow-sm" onclick="selectRepo('${repo.name}')">
+                        <i class="fa-solid fa-folder-open"></i> Browse
+                    </button>
+                    <div class="flex items-center space-x-1">
+                        <button class="copy-btn ${!canCopy ? 'text-github-gray/30 cursor-not-allowed' : (isOnClipboard ? 'text-cyan-400 bg-cyan-500/10 rounded-lg' : 'text-github-gray hover:text-cyan-400')} p-1.5 transition" onclick="${canCopy ? `event.stopPropagation(); copyRepoToClipboard('${repo.name}');` : `event.stopPropagation();`}" title="${canCopy ? (isOnClipboard ? 'Snapshot staged — click to clear' : 'Stage this repo for copying (downloads to IndexedDB)') : 'Add another account to enable copy'}" ${canCopy ? '' : 'disabled'}>
+                            <i class="fa-solid fa-clone"></i>
+                        </button>
+                        <button class="rename-btn text-github-gray hover:text-white p-1.5 transition" onclick="promptRenameRepo('${repo.name}')" title="Rename"><i class="fa-solid fa-pen"></i></button>
+                        <button class="toggle-btn text-github-gray hover:text-white p-1.5 transition" onclick="toggleRepoVisibility('${repo.name}', ${repo.private})" title="Toggle Visibility"><i class="fa-solid fa-lock"></i></button>
+                        <button class="delete-btn text-red-400 hover:text-red-300 p-1.5 transition" onclick="deleteRepo('${repo.name}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+            `;
+            return card;
+        }
+
+        function renderRepoList(repos) {
+            const grid = document.getElementById('repoGrid');
+            grid.innerHTML = '';
+            if (repos.length === 0) {
+                grid.innerHTML = `<div class="col-span-full text-center py-12 text-github-gray">No repositories found.</div>`;
+                return;
+            }
+            repos.forEach(repo => grid.appendChild(createRepoCard(repo)));
+        }
+
+        function filterRepos() {
+            const q = document.getElementById('repoSearch').value.toLowerCase();
+            const filtered = cachedRepos.filter(r => r.name.toLowerCase().includes(q));
+            renderRepoList(filtered);
+        }
+
+        // =============================================
+        //  ENHANCED REPO COPY/PASTE
+        // =============================================
+
+        async function copyRepoToClipboard(repoName) {
+            const others = accountsData.filter(a => a.username !== currentAccount.username);
+            if (others.length === 0) {
+                showCustomModal('No Other Accounts', 'Add another GitHub account first to copy repositories.', null);
+                return;
+            }
+
+            const isAlreadyOnClipboard = clipboard && clipboard.type === 'repo'
+                && clipboard.sourceOwner === currentAccount.username
+                && clipboard.sourceRepo === repoName;
+
+            if (isAlreadyOnClipboard) {
+                await clearClipboard();
+                renderRepoList(cachedRepos);
+                return;
+            }
+
+            if (pendingRepoSnapshot) {
+                await clearStaged(pendingRepoSnapshot.key);
+                pendingRepoSnapshot = null;
+            }
+
+            if (currentAccount && currentRepo === repoName) {
+                clearRepoCache(currentAccount.username, repoName);
+            }
+
+            const snapshotKey = `snap-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            try {
+                const snapshot = await snapshotSourceRepo(
+                    currentAccount.username,
+                    repoName,
+                    currentAccount.token
+                );
+                await stageSnapshot(snapshotKey, snapshot);
+                pendingRepoSnapshot = {
+                    key: snapshotKey,
+                    meta: snapshot.meta,
+                    fileCount: snapshot.files.length
+                };
+
+                clipboard = {
+                    action: 'copy',
+                    type: 'repo',
+                    path: repoName,
+                    sourceOwner: currentAccount.username,
+                    sourceRepo: repoName,
+                    sha: null,
+                    snapshotKey: snapshotKey
+                };
+
+                await saveState({ tokens: tokens, location: getCurrentLocation(), clipboard: clipboard });
+                updateClipboardUI();
+                renderRepoList(cachedRepos);
+            } catch (e) {
+                showCustomModal('Copy Error', 'Failed to stage repository for copying: ' + e.message, null);
+                await clearStaged(snapshotKey);
+                pendingRepoSnapshot = null;
+            }
+        }
+
+        function setClipboardItem(action, path, type, sourceOwner, sourceRepo, sha) {
+            if (pendingRepoSnapshot) {
+                clearStaged(pendingRepoSnapshot.key);
+                pendingRepoSnapshot = null;
+            }
+            clipboard = { action, path, type, sourceOwner, sourceRepo, sha };
+            saveState({ tokens: tokens, location: getCurrentLocation(), clipboard: clipboard });
+            updateClipboardUI();
+        }
+
+        async function clearClipboard() {
+            if (pendingRepoSnapshot) {
+                await clearStaged(pendingRepoSnapshot.key);
+                pendingRepoSnapshot = null;
+            }
+            clipboard = null;
+            await saveState({ tokens: tokens, location: getCurrentLocation(), clipboard: null });
+            updateClipboardUI();
+            if (currentAccount && !currentRepo) renderRepoList(cachedRepos);
+        }
+
+        function updateClipboardUI() {
+            const fileContainer = document.getElementById('pasteContainer');
+            const repoContainer = document.getElementById('repoPasteContainer');
+            const status = document.getElementById('clipboardStatus');
+            const txt = document.getElementById('clipboardText');
+            const actionSpan = document.getElementById('pasteActionName');
+            const repoPasteNameSpan = document.getElementById('repoPasteName');
+            if (!status) return;
+
+            if (clipboard) {
+                status.classList.remove('hidden');
+                if (clipboard.type === 'repo') {
+                    const staged = pendingRepoSnapshot
+                        ? ` • ${pendingRepoSnapshot.fileCount} files staged`
+                        : '';
+                    txt.innerText = `COPY: ${clipboard.sourceRepo} (from @${clipboard.sourceOwner})${staged}`;
+                    if (fileContainer) fileContainer.classList.add('hidden');
+                    if (repoContainer) repoContainer.classList.remove('hidden');
+                    if (repoPasteNameSpan) repoPasteNameSpan.innerText = 'Paste';
+                } else {
+                    txt.innerText = `${clipboard.action.toUpperCase()}: ${clipboard.path.split('/').pop()}`;
+                    if (fileContainer) fileContainer.classList.remove('hidden');
+                    if (repoContainer) repoContainer.classList.add('hidden');
+                    if (actionSpan) actionSpan.innerText = clipboard.action === 'copy' ? 'Copy' : 'Move';
+                }
+            } else {
+                status.classList.add('hidden');
+                if (fileContainer) fileContainer.classList.add('hidden');
+                if (repoContainer) repoContainer.classList.add('hidden');
+            }
+        }
+
+        // =============================================
+        //  CHAINED UPLOAD ENGINE
+        // =============================================
+        function startChainedUpload(options) {
+            const { files, owner, repo, token, existingFiles, onComplete, title } = options;
+            let index = 0;
+            let uploadedCount = 0;
+            showProgressModal(title);
+
+            const uploadNext = () => {
+                if (index >= files.length) {
+                    closeProgressModal();
+                    onComplete({ ok: true, uploadedCount });
+                    return;
+                }
+                const item = files[index];
+                const i = index;
+
+                document.getElementById('progressFile').innerText = item.path;
+                document.getElementById('progressLocation').innerText = `${owner}/${repo}`;
+                document.getElementById('progressBar').style.width = `${(i / files.length) * 100}%`;
+                document.getElementById('progressStatus').innerText = `Uploading ${i + 1} of ${files.length}...`;
+
+                const body = { message: `Add ${item.path}`, content: item.base64 };
+                if (existingFiles && existingFiles[item.path]) body.sha = existingFiles[item.path];
+
+                fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${encodeURI(item.path)}`, {
+                    method: 'PUT',
+                    headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                })
+                .then(async (res) => {
+                    if (res.ok) {
+                        uploadedCount++;
+                        index++;
+                        document.getElementById('progressBar').style.width = `${(index / files.length) * 100}%`;
+                        uploadNext();
+                    } else {
+                        const err = await res.json().catch(() => ({}));
+                        closeProgressModal();
+                        onComplete({
+                            ok: false,
+                            uploadedCount,
+                            failedAt: item.path,
+                            index: i,
+                            total: files.length,
+                            status: res.status,
+                            message: err.message || `HTTP ${res.status}`
+                        });
+                    }
+                })
+                .catch((netErr) => {
+                    closeProgressModal();
+                    onComplete({
+                        ok: false,
+                        uploadedCount,
+                        failedAt: item.path,
+                        index: i,
+                        total: files.length,
+                        status: 'network',
+                        message: netErr.message || 'Network error'
+                    });
+                });
+            };
+
+            uploadNext();
+        }
+
+        // =============================================
+        //  SOURCE REPO SNAPSHOT — with TREE SETTLE LOOP
+        //
+        //  GitHub's git/trees API is eventually consistent. Right after files
+        //  are pushed (folder-sync, zip-extract, paste, etc.), a naive single
+        //  tree fetch can return the pre-upload commit's tree — missing the
+        //  files we just wrote. This loop polls the tree with cache-busting
+        //  (?t=Date.now() only — no custom headers, to avoid CORS preflight)
+        //  until its contents stop changing between two consecutive reads.
+        // =============================================
+
+        async function snapshotSourceRepo(srcOwner, srcRepo, srcToken) {
+            showProgressModal(`Staging @${srcOwner}/${srcRepo}...`);
+
+            // ---- Step 1: repo info with cache-bust ----
+            const infoRes = await fetch(`https://api.github.com/repos/${srcOwner}/${srcRepo}?t=${Date.now()}`, {
+                headers: {
+                    Authorization: `token ${srcToken}`
+                }
+            });
+            if (!infoRes.ok) {
+                closeProgressModal();
+                throw new Error('Failed to fetch source repository info');
+            }
+            const repoInfo = await infoRes.json();
+
+            const meta = {
+                name: repoInfo.name,
+                description: repoInfo.description || '',
+                private: repoInfo.private,
+                default_branch: repoInfo.default_branch || 'main'
+            };
+
+            const branch = meta.default_branch;
+
+            // ---- Step 2: settle the tree ----
+            const SETTLE_ATTEMPTS = 8;
+            const SETTLE_DELAY_MS = 1200;
+
+            let blobs = [];
+            let lastSignature = null;
+            let stableReads = 0;
+
+            document.getElementById('progressFile').innerText = 'Waiting for GitHub to settle tree...';
+            document.getElementById('progressLocation').innerText = `${srcOwner}/${srcRepo}`;
+            document.getElementById('progressStatus').innerText = `Reading tree...`;
+
+            for (let attempt = 1; attempt <= SETTLE_ATTEMPTS; attempt++) {
+                const treeRes = await fetch(
+                    `https://api.github.com/repos/${srcOwner}/${srcRepo}/git/trees/${branch}?recursive=1&t=${Date.now()}`,
+                    {
+                        headers: {
+                            Authorization: `token ${srcToken}`
+                        }
+                    }
+                );
+
+                if (!treeRes.ok) {
+                    if (attempt === SETTLE_ATTEMPTS) {
+                        closeProgressModal();
+                        throw new Error('Failed to fetch source tree');
+                    }
+                    await new Promise(r => setTimeout(r, SETTLE_DELAY_MS));
+                    continue;
+                }
+
+                const treeData = await treeRes.json();
+                const currentBlobs = (treeData.tree || [])
+                    .filter(t => t.type === 'blob' && t.path.split('/').pop() !== '.gitkeep')
+                    .map(t => ({ path: t.path, sha: t.sha, size: t.size }));
+
+                const signature = currentBlobs
+                    .map(b => `${b.path}:${b.sha}`)
+                    .sort()
+                    .join('|');
+
+                document.getElementById('progressStatus').innerText =
+                    `Tree check ${attempt}/${SETTLE_ATTEMPTS} — ${currentBlobs.length} file(s) found`;
+
+                if (signature === lastSignature) {
+                    stableReads++;
+                    if (stableReads >= 2 || currentBlobs.length === 0) {
+                        blobs = currentBlobs;
+                        break;
+                    }
+                } else {
+                    stableReads = 0;
+                }
+
+                lastSignature = signature;
+                blobs = currentBlobs;
+
+                if (attempt < SETTLE_ATTEMPTS) {
+                    await new Promise(r => setTimeout(r, SETTLE_DELAY_MS));
+                }
+            }
+
+            // ---- Step 3: download each file's content ----
+            const files = [];
+            const total = blobs.length;
+
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressFile').innerText = total === 0 ? '(empty repository)' : blobs[0].path;
+            document.getElementById('progressStatus').innerText = total === 0
+                ? 'No files to stage.'
+                : `Downloading 0 of ${total}...`;
+
+            for (let i = 0; i < total; i++) {
+                const blob = blobs[i];
+
+                document.getElementById('progressFile').innerText = blob.path;
+                document.getElementById('progressLocation').innerText = `${srcOwner}/${srcRepo}`;
+                document.getElementById('progressBar').style.width = `${((i + 1) / Math.max(total, 1)) * 100}%`;
+                document.getElementById('progressStatus').innerText = `Downloading ${i + 1} of ${total}...`;
+
+                try {
+                    const contentRes = await fetch(
+                        `https://api.github.com/repos/${srcOwner}/${srcRepo}/contents/${blob.path}?ref=${branch}&t=${Date.now()}`,
+                        {
+                            headers: {
+                                Authorization: `token ${srcToken}`
+                            }
+                        }
+                    );
+                    if (contentRes.ok) {
+                        const contentData = await contentRes.json();
+                        if (contentData.content) {
+                            files.push({ path: blob.path, base64: contentData.content });
+                        }
+                    }
+                } catch (e) {
+                    // Best-effort: skip individual failures
+                }
+            }
+
+            closeProgressModal();
+            return { meta, files };
+        }
+
+        async function listExistingFiles(owner, repo, token, branchName) {
+            const existing = {};
+            try {
+                const treeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${branchName}?recursive=1&t=${Date.now()}`, {
+                    headers: { Authorization: `token ${token}` }
+                });
+                if (treeRes.ok) {
+                    const treeData = await treeRes.json();
+                    for (const item of (treeData.tree || [])) {
+                        if (item.type === 'blob') existing[item.path] = item.sha;
+                    }
+                }
+            } catch (e) {}
+            return existing;
+        }
+
+        async function mirrorDeleteExtraFiles(owner, repo, token, branchName, desiredPaths, existingFiles) {
+            for (const path of Object.keys(existingFiles)) {
+                if (!desiredPaths.has(path)) {
+                    try {
+                        await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${encodeURI(path)}`, {
+                            method: 'DELETE',
+                            headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: `sync-delete ${path}`, sha: existingFiles[path], branch: branchName })
+                        });
+                    } catch (e) {}
+                }
+            }
+        }
+
+        // =============================================
+        //  REPO PASTE — from staged snapshot
+        // =============================================
+
+        async function executeRepoPaste() {
+            if (!clipboard || clipboard.type !== 'repo') return;
+            const srcOwner = clipboard.sourceOwner;
+            const srcRepo = clipboard.sourceRepo;
+            const destOwner = currentAccount.username;
+            const destToken = currentAccount.token;
+
+            if (srcOwner === destOwner) {
+                showCustomModal('Same Account', `This repository already belongs to @${destOwner}. Switch to a different account, then paste.`, null);
+                return;
+            }
+
+            if (!pendingRepoSnapshot) {
+                showLoading(true, 'Preparing repository snapshot...');
+                try {
+                    const sourceAcc = accountsData.find(a => a.username === srcOwner);
+                    if (!sourceAcc) throw new Error('Source account not available');
+                    const snapshotKey = `snap-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    const snapshot = await snapshotSourceRepo(srcOwner, srcRepo, sourceAcc.token);
+                    await stageSnapshot(snapshotKey, snapshot);
+                    pendingRepoSnapshot = { key: snapshotKey, meta: snapshot.meta, fileCount: snapshot.files.length };
+                    clipboard.snapshotKey = snapshotKey;
+                    await saveState({ tokens: tokens, location: getCurrentLocation(), clipboard: clipboard });
+                } catch (e) {
+                    showLoading(false);
+                    showCustomModal('Snapshot Error', 'Could not stage source repo: ' + e.message, null);
+                    return;
+                }
+                showLoading(false);
+            }
+
+            let conflict = false;
+            try {
+                const checkRes = await fetch(`https://api.github.com/repos/${destOwner}/${srcRepo}?t=${Date.now()}`, {
+                    headers: { Authorization: `token ${destToken}` }
+                });
+                if (checkRes.ok) conflict = true;
+            } catch (e) {}
+
+            const meta = pendingRepoSnapshot.meta;
+            const srcLabel = srcOwner === '__local__'
+                ? `local project "${srcRepo}"`
+                : `@${srcOwner}/${srcRepo}`;
+            document.getElementById('pasteRepoSrc').textContent = srcLabel;
+            document.getElementById('pasteRepoDest').textContent = `@${destOwner}`;
+            document.getElementById('pasteRepoName').value = conflict ? srcRepo + '-copy' : meta.name;
+            document.getElementById('pasteRepoVisibility').innerHTML = meta.private
+                ? '<span class="inline-flex items-center gap-1 text-yellow-400"><i class="fa-solid fa-lock"></i> Private</span>'
+                : '<span class="inline-flex items-center gap-1 text-emerald-400"><i class="fa-solid fa-globe"></i> Public</span>';
+            document.getElementById('pasteRepoFileCount').textContent = pendingRepoSnapshot.fileCount;
+
+            const snapshotStatusEl = document.getElementById('pasteRepoSnapshotStatus');
+            const staged = await readStaged(pendingRepoSnapshot.key);
+            if (staged && staged.files) {
+                snapshotStatusEl.innerHTML = '<i class="fa-solid fa-check-circle mr-1"></i>Staged in IndexedDB';
+                snapshotStatusEl.className = 'font-medium text-emerald-400';
+            } else {
+                snapshotStatusEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i>Missing';
+                snapshotStatusEl.className = 'font-medium text-yellow-400';
+            }
+
+            const conflictPanel = document.getElementById('pasteRepoConflict');
+            const overwriteBtn = document.getElementById('pasteRepoOverwriteBtn');
+
+            if (conflict) {
+                conflictPanel.classList.remove('hidden');
+                document.getElementById('pasteRepoConflictName').textContent = srcRepo;
+                overwriteBtn.classList.remove('hidden');
+            } else {
+                conflictPanel.classList.add('hidden');
+                overwriteBtn.classList.add('hidden');
+            }
+
+            document.getElementById('pasteRepoModal').classList.remove('hidden');
+        }
+
+        function closePasteRepoModal() {
+            document.getElementById('pasteRepoModal').classList.add('hidden');
+        }
+
+        function confirmRepoPaste(mode) {
+            const srcOwner = clipboard.sourceOwner;
+            const srcRepo = clipboard.sourceRepo;
+            const destOwner = currentAccount.username;
+            const destToken = currentAccount.token;
+
+            if (mode === 'overwrite') {
+                closePasteRepoModal();
+                performRepoPaste(srcOwner, srcRepo, destOwner, destToken, srcRepo, true);
+            } else {
+                const newName = document.getElementById('pasteRepoName').value.trim();
+                if (!newName) { showCustomModal('Validation', 'Please enter a repository name.', null); return; }
+                closePasteRepoModal();
+                performRepoPaste(srcOwner, srcRepo, destOwner, destToken, newName, false);
+            }
+        }
+
+        async function performRepoPaste(srcOwner, srcRepo, destOwner, destToken, destName, isOverwrite) {
+            if (!pendingRepoSnapshot) {
+                showCustomModal('Snapshot Missing', 'Staged repository data was lost. Please re-copy the repository.', null);
+                return;
+            }
+            const snapshotKey = pendingRepoSnapshot.key;
+
+            try {
+                if (isOverwrite) {
+                    showLoading(true, `Deleting existing @${destOwner}/${destName}...`);
+                    const delRes = await fetch(`https://api.github.com/repos/${destOwner}/${destName}`, {
+                        method: 'DELETE',
+                        headers: { Authorization: `token ${destToken}` }
+                    });
+                    if (!delRes.ok && delRes.status !== 404) {
+                        throw new Error('Failed to delete existing repository (status ' + delRes.status + ')');
+                    }
+                    clearRepoCache(destOwner, destName);
+                    await new Promise(r => setTimeout(r, 2500));
+                    showLoading(false);
+                }
+
+                const staged = await readStaged(snapshotKey);
+                if (!staged || !staged.files) {
+                    throw new Error('Staged snapshot not found in IndexedDB');
+                }
+                const meta = staged.meta;
+
+                showLoading(true, `Creating @${destOwner}/${destName}...`);
+                const createRes = await fetch(`https://api.github.com/user/repos`, {
+                    method: 'POST',
+                    headers: { Authorization: `token ${destToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: destName,
+                        private: meta.private,
+                        description: meta.description || '',
+                        auto_init: true
+                    })
+                });
+                if (!createRes.ok) {
+                    const err = await createRes.json().catch(() => ({}));
+                    throw new Error(err.message || 'Failed to create target repository');
+                }
+                const newRepo = await createRes.json();
+
+                const actualDestName = newRepo.name;
+                const branchName = newRepo.default_branch || 'main';
+                showLoading(false);
+
+                clearRepoCache(destOwner, actualDestName);
+
+                const bufferResult = await ensureRepoReadyViaBuffer(destOwner, actualDestName, destToken);
+                if (!bufferResult.ok) {
+                    await clearStaged(snapshotKey);
+                    pendingRepoSnapshot = null;
+                    clearRepoCache(destOwner, actualDestName);
+                    showCustomModal(
+                        'Repo Not Ready',
+                        `Repository "${actualDestName}" was created, but GitHub did not accept writes within the buffer window.\n\n` +
+                        `Status: ${bufferResult.status}\n` +
+                        `Message: ${bufferResult.message}\n\n` +
+                        `This is typically a GitHub-side delay. You can browse the repo later and use "Sync with Local Folder".`,
+                        null
+                    );
+                    await fetchAndRenderRepos();
+                    return;
+                }
+                const bufferSha = bufferResult.sha;
+
+                const desiredPaths = new Set(staged.files.map(f => f.path));
+                const existingFiles = await listExistingFiles(destOwner, actualDestName, destToken, branchName);
+                delete existingFiles[BUFFER_FILENAME];
+                await mirrorDeleteExtraFiles(destOwner, actualDestName, destToken, branchName, desiredPaths, existingFiles);
+
+                startChainedUpload({
+                    files: staged.files,
+                    owner: destOwner,
+                    repo: actualDestName,
+                    token: destToken,
+                    existingFiles,
+                    title: `Uploading ${staged.files.length} file(s) to @${destOwner}/${actualDestName}`,
+                    onComplete: async (result) => {
+                        await deleteBuffer(destOwner, actualDestName, destToken, bufferSha);
+                        await clearStaged(snapshotKey);
+                        pendingRepoSnapshot = null;
+
+                        clearRepoCache(destOwner, actualDestName);
+
+                        if (!result.ok) {
+                            clipboard = null;
+                            await saveState({ tokens: tokens, location: getCurrentLocation(), clipboard: null });
+                            updateClipboardUI();
+                            showCustomModal(
+                                '⚠️ Upload Failed',
+                                `Failed on file ${result.index + 1} of ${result.total}:\n"${result.failedAt}"\n\n` +
+                                `Status: ${result.status}\n` +
+                                `Message: ${result.message}\n\n` +
+                                `Stopped here — no further files were uploaded. Snapshot has been cleaned up.`,
+                                null
+                            );
+                            await fetchAndRenderRepos();
+                            return;
+                        }
+
+                        clipboard = null;
+                        await saveState({ tokens: tokens, location: getCurrentLocation(), clipboard: null });
+                        updateClipboardUI();
+                        await fetchAndRenderRepos();
+
+                        const verb = isOverwrite ? 'overwritten' : 'copied';
+                        showCustomModal(
+                            '✅ Paste Complete',
+                            `Repository "${srcRepo}" was successfully ${verb} to @${destOwner}/${actualDestName}.\n\n` +
+                            `${result.uploadedCount} of ${staged.files.length} file(s) uploaded.\n` +
+                            `Visibility: ${meta.private ? 'Private' : 'Public'}\n` +
+                            `IndexedDB staging cleaned up.`,
+                            null
+                        );
+                    }
+                });
+            } catch (e) {
+                await clearStaged(snapshotKey);
+                pendingRepoSnapshot = null;
+                clipboard = null;
+                await saveState({ tokens: tokens, location: getCurrentLocation(), clipboard: null });
+                updateClipboardUI();
+                closeProgressModal();
+                showLoading(false);
+                showCustomModal(isOverwrite ? 'Overwrite Error' : 'Paste Error', e.message, null);
+            }
+        }
+
+        // -------- File/folder paste --------
+        async function executePaste() {
+            if (!clipboard || clipboard.type === 'repo') return;
+            showLoading(true, "Executing paste operation...");
+            try {
+                const sourceAcc = accountsData.find(a => a.username === clipboard.sourceOwner);
+                if (clipboard.type === 'dir') {
+                    await pasteFolderRecursive(clipboard.path, sourceAcc);
+                } else {
+                    let contentData = getFileContentFromCache(sourceAcc.username, clipboard.sourceRepo, clipboard.path);
+                    if (!contentData) {
+                        const getRes = await fetch(`https://api.github.com/repos/${clipboard.sourceOwner}/${clipboard.sourceRepo}/contents/${clipboard.path}?t=${Date.now()}`, { headers: { Authorization: `token ${sourceAcc.token}` } });
+                        if (getRes.ok) { const data = await getRes.json(); contentData = data.content; }
+                    }
+                    if (!contentData) throw new Error('Could not retrieve source file content');
+                    const fileName = clipboard.path.split('/').pop();
+                    const destPath = currentPath ? `${currentPath}/${fileName}` : fileName;
+                    await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${destPath}`, {
+                        method: 'PUT',
+                        headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: `paste ${clipboard.path}`, content: contentData })
+                    });
+                }
+                if (clipboard.action === 'move') {
+                    if (clipboard.type === 'dir') await deleteFolderRecursive(clipboard.path);
+                    else {
+                        await fetch(`https://api.github.com/repos/${clipboard.sourceOwner}/${clipboard.sourceRepo}/contents/${clipboard.path}`, {
+                            method: 'DELETE',
+                            headers: { Authorization: `token ${sourceAcc.token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: `move delete`, sha: clipboard.sha })
+                        });
+                    }
+                    clearClipboard();
+                }
+                await invalidateAndRefresh();
+            } catch (e) {
+                showCustomModal("Paste Error", "Failed to complete paste action: " + e.message, null);
+            }
+            showLoading(false);
+        }
+
+        async function pasteFolderRecursive(dirPath, sourceAcc) {
+            const res = await fetch(`https://api.github.com/repos/${clipboard.sourceOwner}/${clipboard.sourceRepo}/contents/${dirPath}?t=${Date.now()}`, { headers: { Authorization: `token ${sourceAcc.token}` } });
+            if (res.ok) {
+                const items = await res.json();
+                const folderName = dirPath.split('/').pop();
+                const newSubPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+                for (let item of items) {
+                    if (item.type === 'file') {
+                        const fileRes = await fetch(`https://api.github.com/repos/${clipboard.sourceOwner}/${clipboard.sourceRepo}/contents/${item.path}?t=${Date.now()}`, { headers: { Authorization: `token ${sourceAcc.token}` } });
+                        if (fileRes.ok) {
+                            const fileData = await fileRes.json();
+                            await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${newSubPath}/${item.name}`, {
+                                method: 'PUT',
+                                headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ message: `paste file ${item.name}`, content: fileData.content })
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // =============================================
+        //  CREATE REPOSITORY WITH FOLDER SYNC
+        // =============================================
+
+        function promptCreateRepo() {
+            document.getElementById('createRepoName').value = '';
+            document.querySelector('input[name="createRepoVis"][value="public"]').checked = true;
+            document.getElementById('createRepoDesc').value = '';
+            pendingCreateRepoFiles = null;
+            pendingCreateRepoRootName = null;
+            resetFolderPickerUI();
+            document.getElementById('createRepoModal').classList.remove('hidden');
+            document.getElementById('createRepoName').focus();
+        }
+
+        function closeCreateRepoModal() {
+            document.getElementById('createRepoModal').classList.add('hidden');
+            pendingCreateRepoFiles = null;
+            pendingCreateRepoRootName = null;
+        }
+
+        function resetFolderPickerUI() {
+            document.getElementById('createRepoFolderTitle').textContent = 'Click here to select a folder to sync';
+            document.getElementById('createRepoFolderSub').textContent = 'The folder name will become the repository name. You can edit everything before upload.';
+            document.getElementById('createRepoFolderArea').classList.remove('border-cyan-500/50');
+            document.getElementById('createRepoFolderArea').classList.add('border-github-border');
+            document.getElementById('createRepoFolderChip').classList.add('hidden');
+        }
+
+        function clearRepoFolderSelection() {
+            pendingCreateRepoFiles = null;
+            pendingCreateRepoRootName = null;
+            document.getElementById('createRepoName').value = '';
+            resetFolderPickerUI();
+        }
+
+        function pickRepoFolder() {
+            const input = document.getElementById('hiddenCreateRepoFolderInput');
+            input.value = '';
+            input.onchange = (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+                const rootName = (files[0].webkitRelativePath || files[0].name).split('/')[0];
+                pendingCreateRepoFiles = files;
+                pendingCreateRepoRootName = rootName;
+                document.getElementById('createRepoName').value = rootName;
+                const area = document.getElementById('createRepoFolderArea');
+                area.classList.remove('border-github-border');
+                area.classList.add('border-cyan-500/50');
+                document.getElementById('createRepoFolderTitle').textContent = `📁 ${rootName}`;
+                document.getElementById('createRepoFolderSub').textContent = 'Folder selected. Click to choose a different folder.';
+                const chip = document.getElementById('createRepoFolderChip');
+                chip.classList.remove('hidden');
+                document.getElementById('createRepoFolderChipName').textContent = rootName;
+                document.getElementById('createRepoFolderChipCount').textContent = `${files.length} file${files.length === 1 ? '' : 's'}`;
+            };
+            input.click();
+        }
+
+        function submitCreateRepo() {
+            const name = document.getElementById('createRepoName').value.trim();
+            if (!name) { showCustomModal('Validation', 'Please enter a repository name.', null); return; }
+            const isPrivate = document.querySelector('input[name="createRepoVis"]:checked').value === 'private';
+            const description = document.getElementById('createRepoDesc').value.trim();
+            const filesSnapshot = pendingCreateRepoFiles;
+            const rootSnapshot = pendingCreateRepoRootName;
+            closeCreateRepoModal();
+            createRepoAndMaybeSync(name, isPrivate, description, filesSnapshot, rootSnapshot);
+            pendingCreateRepoFiles = null;
+            pendingCreateRepoRootName = null;
+        }
+
+        async function createRepoAndMaybeSync(name, isPrivate, description, files, rootFolderName) {
+            try {
+                let normalizedFiles = [];
+                if (files && files.length > 0 && rootFolderName) {
+                    normalizedFiles = files.map(f => {
+                        let path = f.webkitRelativePath || f.name;
+                        if (path.startsWith(rootFolderName + '/')) path = path.substring(rootFolderName.length + 1);
+                        return { path, file: f };
+                    }).filter(f => f.path.length > 0);
+                }
+
+                showLoading(true, "Creating repository on GitHub...");
+                const body = { name: name, private: isPrivate, auto_init: true };
+                if (description) body.description = description;
+                const res = await fetch(`https://api.github.com/user/repos`, {
+                    method: 'POST',
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    showLoading(false);
+                    showCustomModal('Create Error', err.message || 'Failed to create repository', null);
+                    return;
+                }
+                const newRepo = await res.json();
+
+                const actualRepoName = newRepo.name;
+                const branchName = newRepo.default_branch || 'main';
+
+                clearRepoCache(currentAccount.username, actualRepoName);
+
+                cachedRepos.unshift(newRepo);
+                renderRepoList(cachedRepos);
+                const acc = accountsData.find(a => a.username === currentAccount.username);
+                if (acc) { if (isPrivate) acc.privateRepos++; else acc.publicRepos++; }
+                showLoading(false);
+
+                if (normalizedFiles.length === 0) {
+                    await fetchAndRenderRepos();
+                    return;
+                }
+
+                const bufferResult = await ensureRepoReadyViaBuffer(currentAccount.username, actualRepoName, currentAccount.token);
+                if (!bufferResult.ok) {
+                    showCustomModal(
+                        'Repo Not Ready',
+                        `Repository "${actualRepoName}" was created, but GitHub did not accept writes within the buffer window.\n\n` +
+                        `Status: ${bufferResult.status}\n` +
+                        `Message: ${bufferResult.message}\n\n` +
+                        `This is typically a GitHub-side delay. You can browse the repo later and use "Sync with Local Folder".`,
+                        null
+                    );
+                    await fetchAndRenderRepos();
+                    return;
+                }
+                const bufferSha = bufferResult.sha;
+
+                showLoading(true, `Reading ${normalizedFiles.length} file(s) from folder...`);
+                const staged = [];
+                for (let i = 0; i < normalizedFiles.length; i++) {
+                    const f = normalizedFiles[i];
+                    const base64 = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => resolve(ev.target.result.split(',')[1]);
+                        reader.onerror = () => reject(new Error('Failed to read ' + f.path));
+                        reader.readAsDataURL(f.file);
+                    });
+                    staged.push({ path: f.path, base64 });
+                }
+                showLoading(false);
+
+                const desiredPaths = new Set(staged.map(f => f.path));
+                const existingFiles = await listExistingFiles(currentAccount.username, actualRepoName, currentAccount.token, branchName);
+                delete existingFiles[BUFFER_FILENAME];
+                await mirrorDeleteExtraFiles(currentAccount.username, actualRepoName, currentAccount.token, branchName, desiredPaths, existingFiles);
+
+                startChainedUpload({
+                    files: staged,
+                    owner: currentAccount.username,
+                    repo: actualRepoName,
+                    token: currentAccount.token,
+                    existingFiles,
+                    title: `Uploading ${staged.length} file(s) to @${currentAccount.username}/${actualRepoName}`,
+                    onComplete: async (result) => {
+                        await deleteBuffer(currentAccount.username, actualRepoName, currentAccount.token, bufferSha);
+                        clearRepoCache(currentAccount.username, actualRepoName);
+
+                        if (!result.ok) {
+                            showCustomModal(
+                                '⚠️ Upload Failed',
+                                `Failed on file ${result.index + 1} of ${result.total}:\n"${result.failedAt}"\n\n` +
+                                `Status: ${result.status}\n` +
+                                `Message: ${result.message}\n\n` +
+                                `Stopped here — no further files were uploaded.`,
+                                null
+                            );
+                            await fetchAndRenderRepos();
+                            return;
+                        }
+                        showCustomModal(
+                            '✅ Sync Complete',
+                            `Repository "${actualRepoName}" was created with all ${result.uploadedCount} file(s) synced from your folder.`,
+                            null
+                        );
+                        await fetchAndRenderRepos();
+                    }
+                });
+            } catch (e) {
+                closeProgressModal();
+                showLoading(false);
+                showCustomModal('Create Error', e.message, null);
+            }
+        }
+
+        // =============================================
+        //  SYNC EXISTING REPO WITH LOCAL FOLDER
+        // =============================================
+
+        function syncFolderWithRepo() {
+            if (!currentAccount || !currentRepo) return;
+            const input = document.getElementById('hiddenSyncFolderInput');
+            input.value = '';
+            input.onchange = async (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+                const rootFolder = (files[0].webkitRelativePath || files[0].name).split('/')[0];
+                showInputModal(
+                    "Sync Target Folder",
+                    `Local folder "${rootFolder}" selected. Enter the target folder inside the repository (use "root" for repo root).`,
+                    async (chosen) => {
+                        const targetFolder = (chosen || '').trim();
+                        const normalizedFiles = files.map(f => {
+                            let path = f.webkitRelativePath || f.name;
+                            if (path.startsWith(rootFolder + '/')) path = path.substring(rootFolder.length + 1);
+                            if (targetFolder && targetFolder.toLowerCase() !== 'root') path = `${targetFolder}/${path}`;
+                            return { path, file: f };
+                        }).filter(f => f.path.length > 0);
+
+                        try {
+                            let branchName = 'main';
+                            try {
+                                const infoRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}?t=${Date.now()}`, {
+                                    headers: { Authorization: `token ${currentAccount.token}` }
+                                });
+                                if (infoRes.ok) {
+                                    const info = await infoRes.json();
+                                    if (info.default_branch) branchName = info.default_branch;
+                                }
+                            } catch (e) {}
+
+                            const bufferResult = await ensureRepoReadyViaBuffer(currentAccount.username, currentRepo, currentAccount.token);
+                            if (!bufferResult.ok) {
+                                showCustomModal('Repo Not Ready', `Buffer check failed: ${bufferResult.message}`, null);
+                                return;
+                            }
+                            const bufferSha = bufferResult.sha;
+
+                            showLoading(true, `Reading ${normalizedFiles.length} file(s)...`);
+                            const staged = [];
+                            for (let i = 0; i < normalizedFiles.length; i++) {
+                                const f = normalizedFiles[i];
+                                const base64 = await new Promise((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onload = (ev) => resolve(ev.target.result.split(',')[1]);
+                                    reader.onerror = () => reject(new Error('Failed to read ' + f.path));
+                                    reader.readAsDataURL(f.file);
+                                });
+                                staged.push({ path: f.path, base64 });
+                            }
+                            showLoading(false);
+
+                            const desiredPaths = new Set(staged.map(f => f.path));
+                            const existingFiles = await listExistingFiles(currentAccount.username, currentRepo, currentAccount.token, branchName);
+                            delete existingFiles[BUFFER_FILENAME];
+                            await mirrorDeleteExtraFiles(currentAccount.username, currentRepo, currentAccount.token, branchName, desiredPaths, existingFiles);
+
+                            startChainedUpload({
+                                files: staged,
+                                owner: currentAccount.username,
+                                repo: currentRepo,
+                                token: currentAccount.token,
+                                existingFiles,
+                                title: `Uploading ${staged.length} file(s) to @${currentAccount.username}/${currentRepo}`,
+                                onComplete: async (result) => {
+                                    await deleteBuffer(currentAccount.username, currentRepo, currentAccount.token, bufferSha);
+                                    clearRepoCache(currentAccount.username, currentRepo);
+
+                                    if (!result.ok) {
+                                        showCustomModal(
+                                            '⚠️ Upload Failed',
+                                            `Failed on file ${result.index + 1} of ${result.total}:\n"${result.failedAt}"\n\n` +
+                                            `Status: ${result.status}\n` +
+                                            `Message: ${result.message}\n\n` +
+                                            `Stopped here — no further files were uploaded.`,
+                                            null
+                                        );
+                                        await invalidateAndRefresh();
+                                        return;
+                                    }
+                                    await invalidateAndRefresh();
+                                }
+                            });
+                        } catch (err) {
+                            closeProgressModal();
+                            showLoading(false);
+                            showCustomModal('Sync Error', 'Folder sync failed: ' + err.message, null);
+                        }
+                    },
+                    'root'
+                );
+            };
+            input.click();
+        }
+
+        // =============================================
+        //  GITHUB PAGES HOSTING
+        // =============================================
+
+        async function updateHostingBadge() {
+            const badge = document.getElementById('hostingBadge');
+            const menuText = document.getElementById('hostingMenuText');
+            if (!currentRepo || !currentAccount) { badge.classList.add('hidden'); return; }
+            try {
+                const pagesRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                if (pagesRes.ok) {
+                    const pagesData = await pagesRes.json();
+                    const url = pagesData.html_url || `https://${currentAccount.username}.github.io/${currentRepo}/`;
+                    badge.classList.remove('hidden');
+                    badge.innerHTML = `<i class="fa-solid fa-globe"></i> Live: <a href="${url}" target="_blank" class="underline hover:text-white">${url}</a>`;
+                    menuText.textContent = 'Stop Hosting (GitHub Pages)';
+                } else {
+                    badge.classList.add('hidden');
+                    menuText.textContent = 'Host with GitHub Pages';
+                }
+            } catch (e) {
+                badge.classList.add('hidden');
+                menuText.textContent = 'Host with GitHub Pages';
+            }
+        }
+
+        async function checkHostingStatusOnEnter() {
+            if (!currentAccount || !currentRepo) return;
+            try {
+                const repoRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                if (!repoRes.ok) return;
+                const repoInfo = await repoRes.json();
+                const pagesRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                const hasPages = pagesRes.ok;
+                const wfRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/.github/workflows/deploy.yml?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                const hasWorkflow = wfRes.ok;
+                if (repoInfo.private && (hasPages || hasWorkflow)) showHostingRecoveryModal(hasPages, hasWorkflow);
+            } catch (e) {}
+        }
+
+        function showHostingRecoveryModal(hasPages, hasWorkflow) {
+            document.getElementById('hostingModalTitle').innerHTML = `<i class="fa-solid fa-triangle-exclamation text-yellow-400"></i> Hosting Configuration Detected`;
+            const notes = [];
+            if (hasPages) notes.push('a Pages site configuration');
+            if (hasWorkflow) notes.push('a leftover <code>deploy.yml</code> workflow');
+            document.getElementById('hostingModalContent').innerHTML = `
+                <p>This repository is <strong class="text-yellow-400">private</strong> but still contains ${notes.join(' and ')}.</p>
+                <p>Private repositories cannot serve GitHub Pages sites. What would you like to do?</p>
+            `;
+            document.getElementById('hostingModalButtons').innerHTML = `
+                <button onclick="closeHostingModal(); startHosting();" class="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-4 py-3 rounded-xl text-sm font-medium shadow-lg transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-globe"></i> Host Again (make repo public)
+                </button>
+                <button onclick="closeHostingModal(); cleanupHostingFiles();" class="w-full bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-broom"></i> Clean Up Hosting Files (keep private)
+                </button>
+                <button onclick="closeHostingModal();" class="w-full glass-panel hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-medium transition">Leave as-is</button>
+            `;
+            document.getElementById('hostingModal').classList.remove('hidden');
+        }
+
+        function closeHostingModal() { document.getElementById('hostingModal').classList.add('hidden'); }
+
+        async function handleHostingAction() {
+            if (!currentAccount || !currentRepo) return;
+            showLoading(true, "Checking hosting status...");
+            try {
+                const repoRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                if (!repoRes.ok) throw new Error('Failed to fetch repository info');
+                const repoInfo = await repoRes.json();
+                const pagesRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                const isHosted = pagesRes.ok;
+                const pagesData = isHosted ? await pagesRes.json() : null;
+                showLoading(false);
+                if (isHosted && !repoInfo.private) showHostingInfoModal(pagesData);
+                else if (isHosted && repoInfo.private) showHostingRecoveryModal(true, false);
+                else showStartHostingModal(repoInfo.private);
+            } catch (e) {
+                showLoading(false);
+                showCustomModal('Error', e.message, null);
+            }
+        }
+
+        function showHostingInfoModal(pagesData) {
+            const url = pagesData.html_url || `https://${currentAccount.username}.github.io/${currentRepo}/`;
+            document.getElementById('hostingModalTitle').innerHTML = `<i class="fa-solid fa-globe text-emerald-400"></i> Site is Live`;
+            document.getElementById('hostingModalContent').innerHTML = `
+                <p>Your GitHub Pages site is currently live at:</p>
+                <p class="text-blue-400 font-mono text-sm break-all bg-github-dark/60 border border-github-border rounded-xl px-3 py-2">${url}</p>
+                <p class="text-xs mt-1">Status: <span class="text-emerald-400 font-medium">${pagesData.status || 'built'}</span></p>
+                <p class="mt-3">Would you like to stop hosting this site? This will:</p>
+                <ul class="list-disc list-inside text-xs space-y-1 mt-1">
+                    <li>Unpublish the site</li>
+                    <li>Delete <code>.github/workflows/deploy.yml</code></li>
+                    <li>Let you choose the repo visibility afterwards</li>
+                </ul>
+            `;
+            document.getElementById('hostingModalButtons').innerHTML = `
+                <button onclick="closeHostingModal();" class="w-full glass-panel hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-medium transition">Close</button>
+                <button onclick="closeHostingModal(); stopHosting();" class="w-full bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-stop"></i> Stop Hosting
+                </button>
+            `;
+            document.getElementById('hostingModal').classList.remove('hidden');
+        }
+
+        function showStartHostingModal(isPrivate) {
+            document.getElementById('hostingModalTitle').innerHTML = `<i class="fa-solid fa-globe text-blue-400"></i> Host with GitHub Pages`;
+            document.getElementById('hostingModalContent').innerHTML = `
+                <p>Host this repository as a static site via GitHub Actions.</p>
+                <p class="text-yellow-400 text-xs">This will perform the following:</p>
+                <ul class="list-disc list-inside text-xs space-y-1">
+                    ${isPrivate ? '<li>Make the repository <strong>public</strong> (required for Pages)</li>' : ''}
+                    <li>Create <code>.github/workflows/deploy.yml</code></li>
+                    <li>Enable GitHub Pages with <strong>GitHub Actions</strong> as the source</li>
+                </ul>
+                <p class="mt-2 text-xs">Your site will be live at <code>https://${currentAccount.username}.github.io/${currentRepo}/</code> after the first workflow run.</p>
+            `;
+            document.getElementById('hostingModalButtons').innerHTML = `
+                <button onclick="closeHostingModal();" class="w-full glass-panel hover:bg-gray-800 text-gray-300 px-4 py-2.5 rounded-xl text-sm font-medium transition">Cancel</button>
+                <button onclick="closeHostingModal(); startHosting();" class="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-4 py-3 rounded-xl text-sm font-medium shadow-lg transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-rocket"></i> Start Hosting
+                </button>
+            `;
+            document.getElementById('hostingModal').classList.remove('hidden');
+        }
+
+        async function startHosting() {
+            showLoading(true, "Setting up GitHub Pages hosting...");
+            try {
+                await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}`, {
+                    method: 'PATCH',
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ private: false })
+                });
+                const workflowPath = '.github/workflows/deploy.yml';
+                let sha = null;
+                try {
+                    const checkRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${workflowPath}?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                    if (checkRes.ok) { const existing = await checkRes.json(); sha = existing.sha; }
+                } catch (e) {}
+                const workflowBody = { message: 'Add GitHub Pages deployment workflow', content: encodeBase64Unicode(PAGES_WORKFLOW_YAML) };
+                if (sha) workflowBody.sha = sha;
+                await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${workflowPath}`, {
+                    method: 'PUT',
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(workflowBody)
+                });
+                const pagesCheck = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                if (pagesCheck.ok) {
+                    await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages`, {
+                        method: 'PUT',
+                        headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github.v3+json' },
+                        body: JSON.stringify({ build_type: 'workflow' })
+                    });
+                } else {
+                    await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages`, {
+                        method: 'POST',
+                        headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github.v3+json' },
+                        body: JSON.stringify({ build_type: 'workflow' })
+                    });
+                }
+                await new Promise(r => setTimeout(r, 1500));
+                let pagesUrl = `https://${currentAccount.username}.github.io/${currentRepo}/`;
+                try {
+                    const pagesRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                    if (pagesRes.ok) { const data = await pagesRes.json(); if (data.html_url) pagesUrl = data.html_url; }
+                } catch (e) {}
+                const repoObj = cachedRepos.find(r => r.name === currentRepo);
+                if (repoObj) { repoObj.private = false; repoObj.has_pages = true; repoObj.homepage = pagesUrl; }
+                renderRepoList(cachedRepos);
+                showLoading(false);
+                await invalidateAndRefresh();
+                await updateHostingBadge();
+                showCustomModal("✅ Hosting Enabled", `Your site is being deployed.\n\n${pagesUrl}\n\nIt may take 1–2 minutes for the first deployment to complete.`, null);
+            } catch (e) {
+                showLoading(false);
+                showCustomModal('Hosting Error', 'Failed to start hosting: ' + e.message, null);
+            }
+        }
+
+        async function stopHosting() {
+            showLoading(true, "Stopping hosting...");
+            try {
+                await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages`, { method: 'DELETE', headers: { Authorization: `token ${currentAccount.token}` } });
+                try {
+                    const wfRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/.github/workflows/deploy.yml?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                    if (wfRes.ok) {
+                        const wfData = await wfRes.json();
+                        await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/.github/workflows/deploy.yml`, {
+                            method: 'DELETE',
+                            headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: 'Remove GitHub Pages deployment workflow', sha: wfData.sha })
+                        });
+                    }
+                } catch (e) {}
+                const repoObj = cachedRepos.find(r => r.name === currentRepo);
+                if (repoObj) { repoObj.has_pages = false; repoObj.homepage = ''; }
+                renderRepoList(cachedRepos);
+                await updateHostingBadge();
+            } catch (e) {
+                showLoading(false);
+                showCustomModal('Error', 'Failed to stop hosting: ' + e.message, null);
+                return;
+            }
+            showLoading(false);
+            await invalidateAndRefresh();
+            showVisibilityChoiceModal();
+        }
+
+        function showVisibilityChoiceModal() {
+            document.getElementById('hostingModalTitle').innerHTML = `<i class="fa-solid fa-lock text-yellow-400"></i> Choose Repository Visibility`;
+            document.getElementById('hostingModalContent').innerHTML = `
+                <p>The Pages site has been unpublished and the deployment workflow has been removed.</p>
+                <p>What visibility would you like for this repository now?</p>
+            `;
+            document.getElementById('hostingModalButtons').innerHTML = `
+                <button onclick="closeHostingModal(); setRepoVisibility(true);" class="w-full bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-lock"></i> Make Private
+                </button>
+                <button onclick="closeHostingModal(); setRepoVisibility(false);" class="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-globe"></i> Keep Public
+                </button>
+            `;
+            document.getElementById('hostingModal').classList.remove('hidden');
+        }
+
+        async function setRepoVisibility(makePrivate) {
+            showLoading(true, "Updating visibility...");
+            try {
+                await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}`, {
+                    method: 'PATCH',
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ private: makePrivate })
+                });
+                const repoObj = cachedRepos.find(r => r.name === currentRepo);
+                if (repoObj) repoObj.private = makePrivate;
+                renderRepoList(cachedRepos);
+                await invalidateAndRefresh();
+            } catch (e) {
+                showCustomModal('Error', 'Failed to update visibility: ' + e.message, null);
+            }
+            showLoading(false);
+        }
+
+        async function cleanupHostingFiles() {
+            showLoading(true, "Cleaning up hosting files...");
+            try {
+                await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/pages`, { method: 'DELETE', headers: { Authorization: `token ${currentAccount.token}` } });
+                try {
+                    const wfRes = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/.github/workflows/deploy.yml?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                    if (wfRes.ok) {
+                        const wfData = await wfRes.json();
+                        await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/.github/workflows/deploy.yml`, {
+                            method: 'DELETE',
+                            headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: 'Remove leftover Pages deployment workflow', sha: wfData.sha })
+                        });
+                    }
+                } catch (e) {}
+                const repoObj = cachedRepos.find(r => r.name === currentRepo);
+                if (repoObj) { repoObj.has_pages = false; repoObj.homepage = ''; }
+                renderRepoList(cachedRepos);
+                await updateHostingBadge();
+            } catch (e) {}
+            showLoading(false);
+            await invalidateAndRefresh();
+            showCustomModal('✅ Cleanup Complete', 'Hosting files have been removed. The repository remains private.', null);
+        }
+
+        // =============================================
+        //  FILE EDITOR
+        // =============================================
+
+        let currentEditingPath = "";
+        let _newFilePath = null;
+
+        async function openFileEditor(path, sha) {
+            currentEditingPath = path;
+            const content = getFileContentFromCache(currentAccount.username, currentRepo, path);
+            if (content !== null && content !== undefined) {
+                const decoded = decodeBase64Unicode(content);
+                document.getElementById('editingFileNameDisplay').innerText = path.split('/').pop();
+                document.getElementById('editingFileNameDisplay').title = path;
+                document.getElementById('codeEditorArea').value = decoded;
+                currentFileSha = sha;
+                document.getElementById('fileView').classList.add('hidden');
+                document.getElementById('editorView').classList.remove('hidden');
+                const input = document.getElementById('editingFileNameInput');
+                input.value = path.split('/').pop();
+                input.classList.add('hidden');
+                document.getElementById('editingFileNameDisplay').classList.remove('hidden');
+                _newFilePath = null;
+                return;
+            }
+            showLoading(true, "Downloading file content...");
+            try {
+                const res = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${path}?t=${Date.now()}`, {
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Accept': 'application/vnd.github.v3+json' }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const fileContent = data.encoding === 'base64' ? decodeBase64Unicode(data.content) : data.content;
+                    document.getElementById('editingFileNameDisplay').innerText = path.split('/').pop();
+                    document.getElementById('editingFileNameDisplay').title = path;
+                    document.getElementById('codeEditorArea').value = fileContent;
+                    currentFileSha = sha;
+                    document.getElementById('fileView').classList.add('hidden');
+                    document.getElementById('editorView').classList.remove('hidden');
+                    const input = document.getElementById('editingFileNameInput');
+                    input.value = path.split('/').pop();
+                    input.classList.add('hidden');
+                    document.getElementById('editingFileNameDisplay').classList.remove('hidden');
+                    _newFilePath = null;
+                }
+            } catch (e) {}
+            showLoading(false);
+        }
+
+        function enableFileNameEdit() {
+            const display = document.getElementById('editingFileNameDisplay');
+            const input = document.getElementById('editingFileNameInput');
+            if (display.classList.contains('hidden')) return;
+            input.value = display.innerText;
+            display.classList.add('hidden');
+            input.classList.remove('hidden');
+            input.focus();
+            input.select();
+        }
+
+        function saveFileNameEdit() {
+            const display = document.getElementById('editingFileNameDisplay');
+            const input = document.getElementById('editingFileNameInput');
+            const newName = input.value.trim();
+            if (newName === '') {
+                input.value = display.innerText;
+                input.classList.add('hidden');
+                display.classList.remove('hidden');
+                return;
+            }
+            display.innerText = newName;
+            const parts = currentEditingPath.split('/');
+            parts[parts.length - 1] = newName;
+            _newFilePath = parts.join('/');
+            input.classList.add('hidden');
+            display.classList.remove('hidden');
+        }
+
+        async function saveFileCommit() {
+            const oldPath = currentEditingPath;
+            const content = document.getElementById('codeEditorArea').value;
+            const newPath = _newFilePath || oldPath;
+            const secretPatterns = [
+                /ghp_[a-zA-Z0-9]{36}/g, /github_pat_[a-zA-Z0-9_]{22,}/g,
+                /-----BEGIN (RSA|PRIVATE|EC|DSA) KEY-----/g, /sk-[a-zA-Z0-9]{20,}/g,
+                /AIza[0-9A-Za-z-_]{35}/g, /xoxb-[0-9a-zA-Z]{10,}/g
+            ];
+            let detectedSecrets = [];
+            for (let pattern of secretPatterns) {
+                const matches = content.match(pattern);
+                if (matches) detectedSecrets = detectedSecrets.concat(matches);
+            }
+            if (detectedSecrets.length > 0) { showSecretWarningModal(newPath, content, detectedSecrets); return; }
+            await executeFinalCommit(oldPath, newPath, content, false);
+        }
+
+        function showSecretWarningModal(path, content, secrets) {
+            const uniqueSecrets = [...new Set(secrets)];
+            const maskedSecrets = uniqueSecrets.map(s => s.substring(0,6) + '...' + s.substring(s.length-4)).join(', ');
+            showCustomModal(
+                "⚠️ Security Alert: Sensitive Token Detected!",
+                `OctoFlow's Security Shield intercepted active tokens or credentials (${maskedSecrets}). Committing secrets exposes repositories. Do you want to force commit anyway?`,
+                async () => { await executeFinalCommit(path, path, content, true); }
+            );
+        }
+
+        async function executeFinalCommit(oldPath, newPath, content, forceBypass) {
+            const msg = currentFileSha ? `update ${newPath}` : `create ${newPath}`;
+            showLoading(true, forceBypass ? "Force committing..." : "Committing changes securely...");
+            const rename = (oldPath !== newPath);
+            try {
+                let result = await commitFile(newPath, msg, content, rename ? null : currentFileSha);
+                if (!result.success) {
+                    showLoading(false);
+                    if (rename && result.message.includes('already exists')) {
+                        showCustomModal("Rename Error", `A file named "${newPath.split('/').pop()}" already exists.`, null);
+                    } else {
+                        showCustomModal("Commit Error", result.message, null);
+                    }
+                    return;
+                }
+                if (rename && currentFileSha) await deleteFile(oldPath, currentFileSha);
+                showLoading(false);
+                closeEditor();
+                _newFilePath = null;
+                await invalidateAndRefresh();
+            } catch (e) {
+                showLoading(false);
+                showCustomModal("Commit Error", e.message, null);
+            }
+        }
+
+        async function deleteFile(path, sha) {
+            try {
+                const res = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${path}`, {
+                    method: 'DELETE',
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: `delete ${path}`, sha: sha })
+                });
+                return res.ok ? { success: true } : { success: false };
+            } catch (e) { return { success: false }; }
+        }
+
+        async function commitFile(path, message, contentText, sha = null) {
+            try {
+                const body = { message: message, content: encodeBase64Unicode(contentText) };
+                if (sha) body.sha = sha;
+                const res = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${path}`, {
+                    method: 'PUT',
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github.v3+json' },
+                    body: JSON.stringify(body)
+                });
+                if (res.ok) return { success: true };
+                else {
+                    const errData = await res.json().catch(() => ({}));
+                    return { success: false, message: errData.message || `HTTP ${res.status}` };
+                }
+            } catch (e) { return { success: false, message: e.message }; }
+        }
+
+        function closeEditor() {
+            document.getElementById('editorView').classList.add('hidden');
+            document.getElementById('fileView').classList.remove('hidden');
+            _newFilePath = null;
+        }
+
+        async function invalidateAndRefresh() {
+            if (currentAccount && currentRepo) {
+                await new Promise(resolve => setTimeout(resolve, 400));
+                await refreshCurrentRepo(true);
+            }
+        }
+
+        async function deleteItem(path, sha, type) {
+            const msg = type === 'dir' ? `Delete folder '${path}' and all contents recursively?` : `Delete '${path}'?`;
+            showCustomModal("Confirm Deletion", msg, async () => {
+                showLoading(true, "Deleting...");
+                try {
+                    if (type === 'dir') await deleteFolderRecursive(path);
+                    else {
+                        await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${path}`, {
+                            method: 'DELETE',
+                            headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: `delete ${path}`, sha: sha })
+                        });
+                    }
+                    await invalidateAndRefresh();
+                } catch (e) {}
+                showLoading(false);
+            });
+        }
+
+        async function deleteFolderRecursive(dirPath) {
+            const res = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${dirPath}?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+            if (res.ok) {
+                const items = await res.json();
+                for (let item of items) {
+                    if (item.type === 'file') {
+                        await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${item.path}`, {
+                            method: 'DELETE',
+                            headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: `delete ${item.path}`, sha: item.sha })
+                        });
+                    } else if (item.type === 'dir') {
+                        await deleteFolderRecursive(item.path);
+                    }
+                }
+            }
+        }
+
+        function promptCreateFolder() {
+            showInputModal("Create New Folder", "Enter folder name:", async (foldername) => {
+                if (!foldername) return;
+                const placeholderPath = currentPath ? `${currentPath}/${foldername}/.gitkeep` : `${foldername}/.gitkeep`;
+                showLoading(true, "Creating folder...");
+                await commitFile(placeholderPath, `create folder ${foldername}`, "keep");
+                await invalidateAndRefresh();
+                showLoading(false);
+            });
+        }
+
+        function promptCreateFile() {
+            showInputModal("Create New File", "Enter file name (e.g. index.html or src/app.js):", async (filename) => {
+                if (!filename) return;
+                currentFileSha = null;
+                document.getElementById('editingFileNameDisplay').innerText = filename;
+                document.getElementById('editingFileNameDisplay').title = filename;
+                document.getElementById('codeEditorArea').value = "";
+                document.getElementById('fileView').classList.add('hidden');
+                document.getElementById('editorView').classList.remove('hidden');
+                _newFilePath = null;
+                currentEditingPath = filename;
+                const input = document.getElementById('editingFileNameInput');
+                input.value = filename;
+                input.classList.add('hidden');
+                document.getElementById('editingFileNameDisplay').classList.remove('hidden');
+            });
+        }
+
+        async function formatCurrentDirectory() {
+            showCustomModal("⚠️ Wipe Location", "Are you sure you want to delete all contents in this directory?", async () => {
+                showLoading(true, "Wiping folder contents...");
+                try {
+                    const data = getCachedRepoData(currentAccount.username, currentRepo);
+                    if (data) {
+                        const items = filterTreeByPath(data.tree, currentPath);
+                        for (let item of items) {
+                            if (item.type === 'blob') {
+                                await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${item.path}`, {
+                                    method: 'DELETE',
+                                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ message: `wipe ${item.path}`, sha: item.sha })
+                                });
+                            } else if (item.type === 'tree') {
+                                await deleteFolderRecursive(item.path);
+                            }
+                        }
+                    }
+                    await invalidateAndRefresh();
+                } catch (e) {}
+                showLoading(false);
+            });
+        }
+
+        // ============================ UPLOAD ============================
+        let uploadQueue = [], uploadTotal = 0, uploadProcessed = 0, uploadMode = 'general';
+
+        function triggerUploadModal(mode) {
+            uploadMode = mode;
+            const fileInput = document.getElementById('hiddenFileInput');
+            fileInput.value = '';
+            fileInput.accept = mode === 'zip' ? '.zip' : '*/*';
+            fileInput.click();
+        }
+
+        async function handleFileSelected(event) {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+            uploadQueue = [];
+            for (let file of files) {
+                if (uploadMode === 'zip' && file.name.endsWith('.zip')) { await processZipFile(file); continue; }
+                const targetPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+                uploadQueue.push({
+                    name: file.name,
+                    getData: () => new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    }),
+                    targetPath: targetPath,
+                    overwrite: false
+                });
+            }
+            if (uploadQueue.length > 0) {
+                uploadTotal = uploadQueue.length;
+                uploadProcessed = 0;
+                showProgressModal(`Uploading ${uploadTotal} file(s)`);
+                await processUploadQueue();
+                await invalidateAndRefresh();
+            }
+        }
+
+        async function processZipFile(file) {
+            try {
+                const zip = new JSZip();
+                const zipContents = await zip.loadAsync(file);
+                for (let filename of Object.keys(zipContents.files)) {
+                    const zipEntry = zipContents.files[filename];
+                    if (zipEntry.dir) continue;
+                    const targetPath = currentPath ? `${currentPath}/${filename}` : filename;
+                    uploadQueue.push({
+                        name: filename,
+                        getData: async () => await zipEntry.async("base64"),
+                        targetPath: targetPath,
+                        overwrite: false
+                    });
+                }
+            } catch (e) { showCustomModal("ZIP Error", "Could not read ZIP archive: " + e.message, null); }
+        }
+
+        async function processUploadQueue() {
+            if (uploadQueue.length === 0) { closeProgressModal(); return; }
+            uploadTotal = uploadQueue.length;
+            uploadProcessed = 0;
+            for (let i = 0; i < uploadQueue.length; i++) {
+                const item = uploadQueue[i];
+                updateProgressModal(item.name, item.targetPath, (i / uploadTotal) * 100);
+                const sha = await checkFileExists(item.targetPath);
+                if (sha && !item.overwrite) {
+                    const action = await askConflict(item.name);
+                    if (action === 'skip') { uploadProcessed++; continue; }
+                    else if (action === 'overwrite') { item.overwrite = true; await uploadFile(item, sha); }
+                } else { await uploadFile(item, sha || null); }
+                uploadProcessed++;
+                updateProgressModal(item.name, item.targetPath, ((i+1)/uploadTotal)*100);
+            }
+            closeProgressModal();
+        }
+
+        async function checkFileExists(path) {
+            try {
+                const res = await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${path}?t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}`, 'Accept': 'application/vnd.github.v3+json' } });
+                if (res.ok) { const data = await res.json(); return data.sha; }
+                return null;
+            } catch (e) { return null; }
+        }
+
+        async function uploadFile(item, sha = null) {
+            try {
+                const content = await item.getData();
+                const body = { message: `upload ${item.name}`, content: content };
+                if (sha) body.sha = sha;
+                await fetch(`https://api.github.com/repos/${currentAccount.username}/${currentRepo}/contents/${item.targetPath}`, {
+                    method: 'PUT',
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github.v3+json' },
+                    body: JSON.stringify(body)
+                });
+            } catch (e) {}
+        }
+
+        function askConflict(filename) {
+            return new Promise((resolve) => {
+                const conflictDiv = document.getElementById('progressConflict');
+                conflictDiv.classList.remove('hidden');
+                document.getElementById('overwriteBtn').onclick = () => { conflictDiv.classList.add('hidden'); resolve('overwrite'); };
+                document.getElementById('skipBtn').onclick = () => { conflictDiv.classList.add('hidden'); resolve('skip'); };
+                document.getElementById('progressStatus').innerText = `File "${filename}" already exists.`;
+            });
+        }
+
+        async function extractZipFile(path, downloadUrl) {
+            showLoading(true, "Extracting ZIP archive...");
+            try {
+                const cachedContent = getFileContentFromCache(currentAccount.username, currentRepo, path);
+                if (!cachedContent) throw new Error('ZIP file not found in cache');
+                const binary = atob(cachedContent);
+                const uint8Array = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) uint8Array[i] = binary.charCodeAt(i);
+                const blob = new Blob([uint8Array], { type: 'application/zip' });
+                const zip = new JSZip();
+                const zipContents = await zip.loadAsync(blob);
+                const parentDir = path.split('/').slice(0, -1).join('/');
+                uploadQueue = [];
+                for (let filename of Object.keys(zipContents.files)) {
+                    const zipEntry = zipContents.files[filename];
+                    if (zipEntry.dir) continue;
+                    const targetPath = parentDir ? `${parentDir}/${filename}` : filename;
+                    uploadQueue.push({
+                        name: filename,
+                        getData: async () => await zipEntry.async("base64"),
+                        targetPath: targetPath,
+                        overwrite: false
+                    });
+                }
+                if (uploadQueue.length > 0) {
+                    showLoading(false);
+                    uploadTotal = uploadQueue.length;
+                    uploadProcessed = 0;
+                    showProgressModal(`Extracting ZIP (${uploadTotal} files)`);
+                    await processUploadQueue();
+                    await invalidateAndRefresh();
+                } else { showLoading(false); }
+            } catch (e) {
+                showLoading(false);
+                showCustomModal("Extract Error", "Failed to extract ZIP: " + e.message, null);
+            }
+        }
+
+        async function downloadCurrentFolderAsZip() {
+            showLoading(true, "Generating ZIP archive...");
+            try {
+                const zip = new JSZip();
+                const data = getCachedRepoData(currentAccount.username, currentRepo);
+                if (!data) {
+                    showCustomModal("Error", "Repository cache not available. Please refresh.", null);
+                    showLoading(false);
+                    return;
+                }
+                const items = filterTreeByPath(data.tree, currentPath);
+                for (const item of items) {
+                    if (item.type === 'blob') {
+                        const content = data.contents[item.path];
+                        if (content) zip.file(item.path, decodeBase64Unicode(content));
+                    }
+                }
+                const blob = await zip.generateAsync({ type: "blob" });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentRepo}${currentPath ? '-' + currentPath.replace(/\//g, '-') : ''}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } catch (e) { showCustomModal("Download Error", "Failed to generate ZIP archive.", null); }
+            showLoading(false);
+        }
+
+        // ============================ UI HELPERS ============================
+        function toggleActionMenu() { document.getElementById('actionMenuDropdown').classList.toggle('hidden'); }
+        function closeActionMenu() { document.getElementById('actionMenuDropdown').classList.add('hidden'); }
+
+        function showLoading(show, text = "Loading...") {
+            const overlay = document.getElementById('loadingOverlay');
+            document.getElementById('loadingText').innerText = text;
+            if (show) overlay.classList.remove('hidden');
+            else overlay.classList.add('hidden');
+        }
+
+        function showProgressModal(title) {
+            document.getElementById('progressTitle').innerText = title;
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressConflict').classList.add('hidden');
+            document.getElementById('progressStatus').innerText = 'Starting...';
+            document.getElementById('progressModal').classList.remove('hidden');
+        }
+
+        function updateProgressModal(filename, location, percent) {
+            document.getElementById('progressFile').innerText = filename;
+            document.getElementById('progressLocation').innerText = location;
+            document.getElementById('progressBar').style.width = Math.min(percent, 100) + '%';
+            document.getElementById('progressStatus').innerText = `Processing ${Math.floor(percent)}%`;
+        }
+
+        function closeProgressModal() {
+            document.getElementById('progressModal').classList.add('hidden');
+            document.getElementById('progressConflict').classList.add('hidden');
+        }
+
+        function showInputModal(title, desc, callback, defaultValue = '') {
+            document.getElementById('inputModalTitle').innerText = title;
+            document.getElementById('inputModalDesc').innerText = desc;
+            const input = document.getElementById('modalInputField');
+            input.value = defaultValue;
+            input.classList.remove('hidden');
+            document.getElementById('inputModal').classList.remove('hidden');
+            setTimeout(() => { input.focus(); input.select(); }, 30);
+            document.getElementById('modalConfirmBtn').onclick = () => {
+                const val = input.value.trim();
+                closeInputModal();
+                if (callback) callback(val);
+            };
+        }
+
+        function closeInputModal() {
+            document.getElementById('inputModal').classList.add('hidden');
+            document.getElementById('modalConfirmBtn').onclick = null;
+        }
+
+        function showCustomModal(title, desc, confirmCallback = null) {
+            document.getElementById('inputModalTitle').innerText = title;
+            document.getElementById('inputModalDesc').innerText = desc;
+            document.getElementById('modalInputField').classList.add('hidden');
+            document.getElementById('inputModal').classList.remove('hidden');
+            document.getElementById('modalConfirmBtn').onclick = () => {
+                closeInputModal();
+                if (confirmCallback) confirmCallback();
+            };
+        }
+
+        function openTokenModal() {
+            const container = document.getElementById('tokenListContainer');
+            container.innerHTML = '';
+            if (tokens.length === 0) appendTokenInputRow('', false);
+            else tokens.forEach(t => appendTokenInputRow(t.token, t.sessionOnly));
+            document.getElementById('tokenModal').classList.remove('hidden');
+        }
+
+        function closeTokenModal() { document.getElementById('tokenModal').classList.add('hidden'); }
+        function addTokenRow() { appendTokenInputRow('', false); }
+
+        function appendTokenInputRow(val, sessionOnly) {
+            const container = document.getElementById('tokenListContainer');
+            const div = document.createElement('div');
+            div.className = "flex items-center space-x-2";
+            div.innerHTML = `
+                <input type="password" value="${val || ''}" class="token-input flex-1 bg-github-dark border border-github-border rounded-xl px-3.5 py-2.5 text-sm font-mono text-white focus:outline-none focus:border-github-blue shadow-inner" placeholder="ghp_... or github_pat_...">
+                <label class="flex items-center text-xs text-github-gray space-x-1 cursor-pointer select-none">
+                    <input type="checkbox" class="session-checkbox accent-emerald-500" ${sessionOnly ? 'checked' : ''}>
+                    <span>Session</span>
+                </label>
+                <button onclick="this.parentElement.remove()" class="glass-panel hover:bg-red-500/20 text-github-gray hover:text-red-400 p-2.5 rounded-xl transition" title="Remove"><i class="fa-solid fa-trash"></i></button>
+            `;
+            container.appendChild(div);
+        }
+
+        async function saveAndReloadTokens() {
+            const inputs = document.querySelectorAll('.token-input');
+            const checkboxes = document.querySelectorAll('.session-checkbox');
+            const newTokens = [];
+            for (let i = 0; i < inputs.length; i++) {
+                const token = inputs[i].value.trim();
+                if (token) newTokens.push({ token: token, sessionOnly: checkboxes[i].checked });
+            }
+            tokens = newTokens;
+            await saveState({ tokens: tokens, location: null, clipboard: null });
+            closeTokenModal();
+            await initAuthAndLoad(false);
+            goToRoot();
+        }
+
+        // ==========================================================
+        //  PATCHED: rehydrate snapshots on boot instead of wiping.
+        //  Everything else in this function is unchanged.
+        // ==========================================================
+        async function initAuthAndLoad(restoreLocation = true) {
+            showLoading(true, "Authenticating secure accounts...");
+
+            const state = await loadState();
+            let loadedTokens = [];
+            if (state && state.tokens) {
+                loadedTokens = state.tokens.filter(t => !t.sessionOnly);
+                tokens = loadedTokens;
+                clipboard = state.clipboard || null;
+            } else {
+                tokens = [];
+                clipboard = null;
+            }
+
+            // Rehydrate a staged repo snapshot instead of wiping it on boot.
+            // This lets a snapshot survive a page reload (and lets a sibling
+            // app in the same origin stage a snapshot for us).
+            pendingRepoSnapshot = null;
+            if (clipboard && clipboard.type === 'repo' && clipboard.snapshotKey) {
+                const staged = await readStaged(clipboard.snapshotKey);
+                if (staged && staged.files) {
+                    pendingRepoSnapshot = {
+                        key: clipboard.snapshotKey,
+                        meta: staged.meta,
+                        fileCount: staged.files.length
+                    };
+                } else {
+                    // Sticky note points at nothing — drop it.
+                    clipboard = null;
+                    await clearAllStaging();
+                }
+            } else if (!clipboard || clipboard.type !== 'repo') {
+                // No repo snapshot in play → clear any orphaned staging rows.
+                await clearAllStaging();
+            }
+
+            await saveState({ tokens: tokens, location: state ? (state.location || null) : null, clipboard: clipboard });
+            updateClipboardUI();
+
+            accountsData = [];
+            for (let t of tokens) {
+                try {
+                    const res = await fetch('https://api.github.com/user', {
+                        headers: { Authorization: `token ${t.token}`, 'Accept': 'application/vnd.github.v3+json' }
+                    });
+                    if (res.ok) {
+                        const user = await res.json();
+                        accountsData.push({
+                            token: t.token,
+                            username: user.login,
+                            name: user.name || user.login,
+                            avatar: user.avatar_url,
+                            publicRepos: user.public_repos,
+                            privateRepos: user.total_private_repos || 0
+                        });
+                    }
+                } catch (e) {}
+            }
+            showLoading(false);
+            renderRootView();
+
+            if (restoreLocation && state && state.location) {
+                const loc = state.location;
+                const account = accountsData.find(a => a.username === loc.username);
+                if (account) {
+                    currentAccount = account;
+                    currentRepo = loc.repo;
+                    currentPath = loc.path || "";
+                    try {
+                        await loadRepoIntoCache(currentAccount.username, currentRepo, currentAccount.token);
+                        document.getElementById('rootView').classList.add('hidden');
+                        document.getElementById('repoView').classList.add('hidden');
+                        document.getElementById('fileView').classList.remove('hidden');
+                        document.getElementById('editorView').classList.add('hidden');
+                        document.getElementById('currentRepoBadge').innerText = `${currentRepo}${currentPath ? '/' + currentPath : ''}`;
+                        await renderCurrentDirectory();
+                        updateBreadcrumbs();
+                        updateClipboardUI();
+                    } catch (e) { goToRoot(); }
+                } else { goToRoot(); }
+            } else { goToRoot(); }
+        }
+
+        function getCurrentLocation() {
+            if (currentAccount && currentRepo) {
+                return { username: currentAccount.username, repo: currentRepo, path: currentPath || "" };
+            }
+            return null;
+        }
+
+        async function updateStoredLocation() {
+            const loc = getCurrentLocation();
+            await saveState({ tokens: tokens, location: loc, clipboard: clipboard });
+        }
+
+        async function manualRefresh() {
+            if (currentAccount && currentRepo) await refreshCurrentRepo(true);
+        }
+
+        function updateBreadcrumbs() {
+            const bc = document.getElementById('breadcrumbs');
+            let html = `<span class="cursor-pointer hover:text-white transition flex items-center gap-1.5 font-medium text-blue-400" onclick="goToRoot()"><i class="fa-solid fa-house"></i> Root</span>`;
+            if (currentAccount) {
+                html += ` <span class="text-github-gray">/</span> <span class="cursor-pointer hover:text-white transition font-medium" onclick="selectAccount('${currentAccount.username}')">${currentAccount.username}</span>`;
+            }
+            if (currentRepo) {
+                html += ` <span class="text-github-gray">/</span> <span class="cursor-pointer hover:text-white transition font-medium text-emerald-400" onclick="selectRepo('${currentRepo}')">${currentRepo}</span>`;
+            }
+            if (currentPath) {
+                const parts = currentPath.split('/');
+                let accumulated = '';
+                parts.forEach((part, idx) => {
+                    accumulated += (idx === 0 ? part : '/' + part);
+                    const isLast = idx === parts.length - 1;
+                    html += ` <span class="text-github-gray">/</span> <span class="cursor-pointer hover:text-white transition ${isLast ? 'text-white font-bold' : ''}" onclick="selectRepo('${currentRepo}', '${accumulated}')">${part}</span>`;
+                });
+            }
+            bc.innerHTML = html;
+        }
+
+        async function promptRenameRepo(repoName) {
+            showInputModal("Rename Repository", `Enter new name for '${repoName}':`, async (newName) => {
+                if (!newName || newName === repoName) return;
+                showLoading(true, "Renaming repository...");
+                try {
+                    const res = await fetch(`https://api.github.com/repos/${currentAccount.username}/${repoName}`, {
+                        method: 'PATCH',
+                        headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: newName })
+                    });
+                    if (res.ok) {
+                        const renamed = await res.json();
+                        const actualNewName = renamed.name;
+
+                        clearRepoCache(currentAccount.username, repoName);
+                        clearRepoCache(currentAccount.username, actualNewName);
+
+                        const repo = cachedRepos.find(r => r.name === repoName);
+                        if (repo) repo.name = actualNewName;
+
+                        if (currentRepo === repoName) {
+                            currentRepo = actualNewName;
+                            document.getElementById('currentRepoBadge').innerText =
+                                `${actualNewName}${currentPath ? '/' + currentPath : ''}`;
+                            await updateStoredLocation();
+                            updateBreadcrumbs();
+                        }
+
+                        renderRepoList(cachedRepos);
+                    }
+                } catch (e) {}
+                showLoading(false);
+            });
+        }
+
+        async function toggleRepoVisibility(repoName, currentPrivate) {
+            showLoading(true, "Updating visibility...");
+            try {
+                await fetch(`https://api.github.com/repos/${currentAccount.username}/${repoName}`, {
+                    method: 'PATCH',
+                    headers: { Authorization: `token ${currentAccount.token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ private: !currentPrivate })
+                });
+                const repo = cachedRepos.find(r => r.name === repoName);
+                if (repo) {
+                    repo.private = !currentPrivate;
+                    if (repo.private) {
+                        repo.has_pages = false;
+                        repo.homepage = '';
+                    }
+                }
+                renderRepoList(cachedRepos);
+                const acc = accountsData.find(a => a.username === currentAccount.username);
+                if (acc) {
+                    if (!currentPrivate) { acc.publicRepos--; acc.privateRepos++; }
+                    else { acc.publicRepos++; acc.privateRepos--; }
+                }
+            } catch (e) {}
+            showLoading(false);
+        }
+
+        async function deleteRepo(repoName) {
+            showCustomModal("Delete Repository", `Are you sure you want to permanently delete '${repoName}'?`, async () => {
+                showLoading(true, "Deleting repository...");
+                try {
+                    const res = await fetch(`https://api.github.com/repos/${currentAccount.username}/${repoName}`, {
+                        method: 'DELETE',
+                        headers: { Authorization: `token ${currentAccount.token}` }
+                    });
+                    if (res.ok || res.status === 404) {
+                        clearRepoCache(currentAccount.username, repoName);
+                        cachedRepos = cachedRepos.filter(r => r.name !== repoName);
+                        renderRepoList(cachedRepos);
+                    }
+                } catch (e) {}
+                showLoading(false);
+            });
+        }
+
+        async function formatAllRepositories() {
+            showCustomModal("⚠️ Format All Repositories", `WARNING: This will delete ALL repositories in ${currentAccount.username}!`, async () => {
+                showLoading(true, "Wiping all repositories...");
+                try {
+                    const res = await fetch(`https://api.github.com/user/repos?per_page=100&t=${Date.now()}`, { headers: { Authorization: `token ${currentAccount.token}` } });
+                    if (res.ok) {
+                        const repos = await res.json();
+                        for (let repo of repos) {
+                            await fetch(`https://api.github.com/repos/${currentAccount.username}/${repo.name}`, {
+                                method: 'DELETE',
+                                headers: { Authorization: `token ${currentAccount.token}` }
+                            });
+                        }
+                    }
+                    purgeAccountRepoCache(currentAccount.username);
+                    cachedRepos = [];
+                    renderRepoList([]);
+                } catch (e) {}
+                showLoading(false);
+            });
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes) return '0 B';
+            const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function encodeBase64Unicode(str) {
+            return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode('0x' + p1)));
+        }
+
+        function decodeBase64Unicode(base64) {
+            try {
+                return decodeURIComponent(atob(base64.replace(/\s/g, '')).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+            } catch (e) { return atob(base64); }
+        }
+
+        function getFileIcon(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            if (['js','ts','jsx','tsx'].includes(ext)) return '<i class="fa-brands fa-js text-yellow-400"></i>';
+            if (['html','htm'].includes(ext)) return '<i class="fa-brands fa-html5 text-orange-500"></i>';
+            if (['css','scss'].includes(ext)) return '<i class="fa-brands fa-css3-alt text-blue-400"></i>';
+            if (['json'].includes(ext)) return '<i class="fa-solid fa-brackets-curly text-yellow-300"></i>';
+            if (['md'].includes(ext)) return '<i class="fa-brands fa-markdown text-blue-300"></i>';
+            if (['py'].includes(ext)) return '<i class="fa-brands fa-python text-blue-400"></i>';
+            if (['png','jpg','jpeg','gif','svg'].includes(ext)) return '<i class="fa-solid fa-file-image text-purple-400"></i>';
+            if (['zip','rar','tar','gz'].includes(ext)) return '<i class="fa-solid fa-file-zipper text-purple-300"></i>';
+            return '<i class="fa-solid fa-file-lines text-github-gray"></i>';
+        }
+
+        // ==========================================================
+        //  GLOBAL LIFECYCLE
+        // ==========================================================
+        window.addEventListener('beforeunload', () => {
+            if (pendingRepoSnapshot) {
+                try { clearStaged(pendingRepoSnapshot.key); } catch (e) {}
+            }
+        });
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initAuthAndLoad(true);
+        });
+    </script>
+</body>
+</html>
